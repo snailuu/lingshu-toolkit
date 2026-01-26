@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/@cmtlyt/unplugin-shadcn-registry-generate/configuration-schema.json",
+  "exports": [
+    {
+      "name": "sharedDataHandler",
+      "path": "src/shared/data-handler/index.ts"
+    },
+    {
+      "name": "sharedThrowError",
+      "path": "src/shared/throw-error/index.ts"
+    },
+    {
+      "name": "sharedTypes",
+      "path": "src/shared/types/index.ts"
+    },
+    {
+      "name": "reactUseControllableValue",
+      "path": "src/react/use-controllable-value/index.ts"
+    },
+    {
+      "name": "reactUseCounter",
+      "path": "src/react/use-counter/index.ts"
+    },
+    {
+      "name": "reactUseValidData",
+      "path": "src/react/use-valid-data/index.ts"
+    }
+  ]
+}

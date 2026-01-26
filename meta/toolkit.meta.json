@@ -1,0 +1,5 @@
+{
+  "$schema": "../plugins/auto-patch-file/schema.json",
+  "shared": [{ "name": "dataHandler" }, { "name": "throwError" }, { "name": "types" }],
+  "react": [{ "name": "useControllableValue" }, { "name": "useCounter" }, { "name": "useValidData" }]
+}

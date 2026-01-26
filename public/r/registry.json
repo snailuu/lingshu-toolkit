@@ -1,0 +1,143 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "",
+  "homepage": "",
+  "items": [
+    {
+      "title": "sharedDataHandler",
+      "name": "sharedDataHandler",
+      "description": "sharedDataHandler",
+      "registryDependencies": [
+        "./public/r/sharedThrowError.json"
+      ],
+      "dependencies": [],
+      "files": [
+        {
+          "path": "src/shared/data-handler/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/index.ts"
+        },
+        {
+          "path": "src/shared/data-handler/types.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/types.ts"
+        },
+        {
+          "path": "src/shared/data-handler/tools.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/tools.ts"
+        },
+        {
+          "path": "src/shared/logger/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/logger/index.ts"
+        }
+      ],
+      "type": "registry:item"
+    },
+    {
+      "title": "sharedThrowError",
+      "name": "sharedThrowError",
+      "description": "sharedThrowError",
+      "registryDependencies": [],
+      "dependencies": [],
+      "files": [
+        {
+          "path": "src/shared/throw-error/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/throw-error/index.ts"
+        }
+      ],
+      "type": "registry:item"
+    },
+    {
+      "title": "sharedTypes",
+      "name": "sharedTypes",
+      "description": "sharedTypes",
+      "registryDependencies": [],
+      "dependencies": [],
+      "files": [
+        {
+          "path": "src/shared/types/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/types/index.ts"
+        }
+      ],
+      "type": "registry:item"
+    },
+    {
+      "title": "reactUseControllableValue",
+      "name": "reactUseControllableValue",
+      "description": "reactUseControllableValue",
+      "registryDependencies": [
+        "./public/r/sharedTypes.json",
+        "./public/r/reactUseValidData.json"
+      ],
+      "dependencies": [
+        "react",
+        "@s"
+      ],
+      "files": [
+        {
+          "path": "src/react/use-controllable-value/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/react/use-controllable-value/index.ts"
+        }
+      ],
+      "type": "registry:item"
+    },
+    {
+      "title": "reactUseCounter",
+      "name": "reactUseCounter",
+      "description": "reactUseCounter",
+      "registryDependencies": [
+        "./public/r/reactUseValidData.json"
+      ],
+      "dependencies": [
+        "react",
+        "@s"
+      ],
+      "files": [
+        {
+          "path": "src/react/use-counter/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/react/use-counter/index.ts"
+        }
+      ],
+      "type": "registry:item"
+    },
+    {
+      "title": "reactUseValidData",
+      "name": "reactUseValidData",
+      "description": "reactUseValidData",
+      "registryDependencies": [],
+      "dependencies": [
+        "@s",
+        "react"
+      ],
+      "files": [
+        {
+          "path": "src/react/use-valid-data/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/react/use-valid-data/index.ts"
+        },
+        {
+          "path": "src/shared/data-handler/types.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/types.ts"
+        },
+        {
+          "path": "src/shared/data-handler/tools.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/tools.ts"
+        },
+        {
+          "path": "src/shared/logger/index.ts",
+          "type": "registry:file",
+          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/logger/index.ts"
+        }
+      ],
+      "type": "registry:item"
+    }
+  ]
+}
