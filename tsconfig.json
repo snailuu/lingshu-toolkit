@@ -17,5 +17,8 @@
       "@s/*": ["./src/shared/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "mdx": {
+    "checkMdx": true
+  }
 }

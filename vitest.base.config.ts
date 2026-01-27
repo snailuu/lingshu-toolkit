@@ -1,10 +1,14 @@
 import tsConfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 import { pluginAutoPatchFile } from './plugins/auto-patch-file';
+import { config } from './scripts/config';
 
 export default defineConfig({
   // Configure Vitest (https://vitest.dev/config/)
-  plugins: [tsConfigPaths(), pluginAutoPatchFile({ mateFile: 'meta/toolkit.meta.json' })],
+  plugins: [
+    tsConfigPaths(),
+    pluginAutoPatchFile({ registryUrl: config.registryUrl, mateFile: 'meta/toolkit.meta.json' }),
+  ],
   test: {
     coverage: {
       include: ['src/**'],

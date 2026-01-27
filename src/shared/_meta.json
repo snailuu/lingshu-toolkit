@@ -1,0 +1,17 @@
+[
+  {
+    "type": "file",
+    "label": "dataHandler",
+    "name": "data-handler/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "throwError",
+    "name": "throw-error/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "types",
+    "name": "types/index.mdx"
+  }
+]

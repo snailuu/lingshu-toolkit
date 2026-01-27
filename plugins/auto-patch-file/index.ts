@@ -11,12 +11,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 interface PluginAutoPatchFileOptions {
   root?: string;
   mateFile: string;
+  registryUrl?: string;
+  docGenIgnoreEntryCheck?: boolean;
 }
 
 interface Context {
   root: string;
   metaFile: string;
+  registryUrl: string;
   shadcnExportsFile: string;
+  docGenIgnoreEntryCheck: boolean;
 }
 
 async function parseMetaFile(metaFile: string) {
@@ -64,37 +68,47 @@ const templateMap = new Proxy({} as Record<string, string>, {
 
 function parseTemplate(tempName: string, data: Record<string, any>) {
   let template = templateMap[tempName];
-  (Reflect.ownKeys(data) as string[]).forEach((key) => {
-    template = template.replace(new RegExp(`\\$\\$${key}\\$\\$`, 'g'), data[key]);
-  });
+  template = template.replace(/\$\$(.*?)\$\$/g, (_, key) => data[key]);
   return template;
+}
+
+function parseInjectData(toolPath: string, namespace: string, tool: ToolMate, ctx: Context) {
+  return {
+    namespace,
+    name: tool.name,
+    shadcnPath: `${ctx.registryUrl}/${formatNameFromTool({ meta: tool, namespace })}`,
+    fileName: path.basename(toolPath),
+  };
 }
 
 const toolFiles = fs.readdirSync(path.resolve(__dirname, 'template'));
 
-async function createToolFiles(toolName: string, toolPath: string) {
+async function createToolFiles(toolPath: string, namespace: string, tool: ToolMate, ctx: Context) {
   const entryPath = path.resolve(toolPath, 'index.ts');
-  if (fs.existsSync(entryPath)) {
-    return entryPath;
-  }
+  const hasEntry = fs.existsSync(entryPath);
   for (let i = 0, tempName = toolFiles[i]; i < toolFiles.length; tempName = toolFiles[++i]) {
     const filePath = path.resolve(toolPath, tempName);
     if (fs.existsSync(filePath)) {
       continue;
     }
-    await fsp.writeFile(filePath, parseTemplate(tempName, { name: toolName }), 'utf-8');
+    // 如果需要生成的是文档, 则判断是否忽略入口文件的检查, 如果忽略的话直接跳过该分支, 否则判断入口是否存在, 存在则警告并且跳过文件生成
+    if (tempName.endsWith('.mdx') ? !ctx.docGenIgnoreEntryCheck && hasEntry : hasEntry) {
+      console.warn(`${entryPath} already exists, skip create ${tempName}`);
+      continue;
+    }
+    await fsp.writeFile(filePath, parseTemplate(tempName, parseInjectData(toolPath, namespace, tool, ctx)), 'utf-8');
   }
   return entryPath;
 }
 
-async function initializeTools(namespace: string, namespacePath: string, toolMetas: ToolMate[], _ctx: Context) {
+async function initializeTools(namespace: string, namespacePath: string, toolMetas: ToolMate[], ctx: Context) {
   return Promise.all(
     toolMetas.map(async (tool) => {
       const toolPath = path.resolve(namespacePath, formatDirname(tool.name));
       if (!(fs.existsSync(toolPath) && fs.statSync(toolPath).isDirectory())) {
         await fsp.mkdir(toolPath, { recursive: true });
       }
-      return { meta: tool, namespace, filePath: await createToolFiles(tool.name, toolPath) };
+      return { meta: tool, namespace, namespacePath, filePath: await createToolFiles(toolPath, namespace, tool, ctx) };
     }),
   );
 }
@@ -122,7 +136,7 @@ async function packageJsonPatch(namesapces: string[], ctx: Context) {
 
 type ToolInfo = Awaited<ReturnType<typeof initializeTools>>[number];
 
-function formatNameFromTool(toolInfo: ToolInfo) {
+function formatNameFromTool(toolInfo: Pick<ToolInfo, 'namespace' | 'meta'>) {
   const { meta } = toolInfo;
   return `${toolInfo.namespace}${meta.name[0].toUpperCase()}${meta.name.slice(1)}`;
 }
@@ -153,16 +167,80 @@ async function generateShadcnExports(toolInfos: ToolInfo[], ctx: Context) {
 }
 
 function createContext(options: PluginAutoPatchFileOptions) {
-  const { root = process.cwd(), mateFile } = options;
+  const { root = process.cwd(), mateFile, registryUrl = './public/r' } = options;
 
   const realMetaFile = path.resolve(root, mateFile);
   const shadcnExportsFile = path.resolve(root, 'shadcn-exports.json');
   const ctx = {
     root,
+    registryUrl,
     metaFile: realMetaFile,
     shadcnExportsFile,
+    docGenIgnoreEntryCheck: options.docGenIgnoreEntryCheck === true,
   };
   return ctx;
+}
+
+type NamespaceInfo = Awaited<ReturnType<typeof initializeNamespaces>>[number];
+
+interface DocMeta {
+  type: 'file';
+  name: string;
+  label?: string;
+  tag?: string;
+  overviewHeaders?: number[];
+  context?: string;
+}
+
+async function initMetaMap(namespaceInfos: NamespaceInfo[]) {
+  const metaMap = {} as Record<string, DocMeta[]>;
+  const docSet = new Set<string>();
+  await Promise.all(
+    namespaceInfos.map(async ({ namespace, namespacePath }) => {
+      const metaPath = path.resolve(namespacePath, '_meta.json');
+      if (!fs.existsSync(metaPath)) {
+        metaMap[namespace] = [];
+        return;
+      }
+      metaMap[namespace] = JSON.parse(await fsp.readFile(metaPath, 'utf-8'));
+      metaMap[namespace].forEach((item) => {
+        docSet.add(item.name);
+      });
+    }),
+  );
+  return { metaMap, docSet };
+}
+
+async function generateDocMeta(namespaceInfos: NamespaceInfo[], metaMap: Record<string, DocMeta[]>) {
+  return Promise.all(
+    namespaceInfos.map(async ({ namespace, namespacePath }) => {
+      const metaPath = path.resolve(namespacePath, '_meta.json');
+      fsp.writeFile(metaPath, JSON.stringify(metaMap[namespace], null, 2), 'utf-8');
+    }),
+  );
+}
+
+function computeDocMeta(toolInfos: ToolInfo[], metaMap: Record<string, DocMeta[]>, docSet: Set<string>) {
+  for (let i = 0, toolInfo = toolInfos[i]; i < toolInfos.length; toolInfo = toolInfos[++i]) {
+    const { meta, namespace, filePath, namespacePath } = toolInfo;
+    const docName = path.resolve(path.dirname(filePath), 'index.mdx').slice(namespacePath.length + 1);
+    if (docSet.has(docName)) {
+      continue;
+    }
+    metaMap[namespace].push({
+      type: 'file',
+      label: meta.name,
+      name: docName,
+    });
+  }
+}
+
+async function generateRspressDocMetas(namespaceInfos: NamespaceInfo[], toolInfos: ToolInfo[], _ctx: Context) {
+  const { metaMap, docSet } = await initMetaMap(namespaceInfos);
+
+  computeDocMeta(toolInfos, metaMap, docSet);
+
+  return generateDocMeta(namespaceInfos, metaMap);
 }
 
 async function processHandler(ctx: Context) {
@@ -178,7 +256,7 @@ async function processHandler(ctx: Context) {
       }),
     )
   ).flat(1);
-  return generateShadcnExports(toolInfos, ctx);
+  return Promise.all([generateRspressDocMetas(namespaceInfos, toolInfos, ctx), generateShadcnExports(toolInfos, ctx)]);
 }
 
 export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {

@@ -2,6 +2,7 @@ import { existsSync, globSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import shadcnRegistryGenerate from '@cmtlyt/unplugin-shadcn-registry-generate';
 import { defineConfig } from '@rslib/core';
+import { config } from './scripts/config';
 
 function getEntrys(namespace: string) {
   return globSync([`src/${namespace}/**/index.ts`], {
@@ -63,8 +64,9 @@ export default defineConfig({
         rspack: {
           plugins: [
             shadcnRegistryGenerate.rspack({
+              outputDir: './src/public/r',
               basePath: '~/src/cmtlyt/lingshu-toolkit',
-              registryUrl: './public/r',
+              registryUrl: config.registryUrl,
               noRootRegistry: true,
             }),
           ],

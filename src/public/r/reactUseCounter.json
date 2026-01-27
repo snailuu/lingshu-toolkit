@@ -4,7 +4,7 @@
   "name": "reactUseCounter",
   "description": "reactUseCounter",
   "registryDependencies": [
-    "./public/r/reactUseValidData.json"
+    "./src/public/r/reactUseValidData.json"
   ],
   "dependencies": [
     "react",

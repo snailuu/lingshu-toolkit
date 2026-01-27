@@ -8,7 +8,7 @@
       "name": "sharedDataHandler",
       "description": "sharedDataHandler",
       "registryDependencies": [
-        "./public/r/sharedThrowError.json"
+        "./src/public/r/sharedThrowError.json"
       ],
       "dependencies": [],
       "files": [
@@ -70,8 +70,8 @@
       "name": "reactUseControllableValue",
       "description": "reactUseControllableValue",
       "registryDependencies": [
-        "./public/r/sharedTypes.json",
-        "./public/r/reactUseValidData.json"
+        "./src/public/r/sharedTypes.json",
+        "./src/public/r/reactUseValidData.json"
       ],
       "dependencies": [
         "react",
@@ -91,7 +91,7 @@
       "name": "reactUseCounter",
       "description": "reactUseCounter",
       "registryDependencies": [
-        "./public/r/reactUseValidData.json"
+        "./src/public/r/reactUseValidData.json"
       ],
       "dependencies": [
         "react",
