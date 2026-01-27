@@ -5,9 +5,9 @@ import { defineConfig } from '@rslib/core';
 import { config } from './scripts/config';
 
 function getEntrys(namespace: string) {
-  return globSync([`src/${namespace}/**/index.ts`], {
+  return globSync([`src/${namespace}/**/*.ts`], {
     cwd: import.meta.dirname,
-    exclude: [`src/${namespace}/index.ts`],
+    exclude: [`src/${namespace}/index.ts`, 'src/**/*.test.{ts,tsx}'],
   });
 }
 
@@ -28,7 +28,7 @@ function getEntryInfo() {
     const nsp = path.resolve(__dirname, 'src', ns);
     const entrys = getEntrys(ns);
     if (existsSync(path.resolve(nsp, 'index.ts'))) {
-      mainEntryResult[ns] = [`./src/${ns}/index.ts`];
+      mainEntryResult[`${ns}/index`] = [`./src/${ns}/index.ts`];
     }
     if (entrys.length > 0) {
       unbundleEntryResult[ns] = entrys;

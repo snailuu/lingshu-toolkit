@@ -113,6 +113,10 @@ async function initializeTools(namespace: string, namespacePath: string, toolMet
   );
 }
 
+async function writeJson(filePath: string, json: Record<string, any>) {
+  return fsp.writeFile(filePath, `${JSON.stringify(json, null, 2)}\n`, 'utf-8');
+}
+
 async function packageJsonPatch(namesapces: string[], ctx: Context) {
   const packageJsonPath = path.resolve(ctx.root, 'package.json');
   const packageJson = JSON.parse(await fsp.readFile(packageJsonPath, 'utf-8'));
@@ -122,16 +126,17 @@ async function packageJsonPatch(namesapces: string[], ctx: Context) {
   namesapces.forEach((ns) => {
     exports[`./${ns}`] = {
       types: `./dist/${ns}/index.d.ts`,
-      import: `./dist/${ns}.js`,
+      import: `./dist/${ns}/index.js`,
     };
     exports[`./${ns}/*`] = {
+      types: `./dist/${ns}/*/index.d.ts`,
       import: `./dist/${ns}/*`,
     };
   });
 
   packageJson.exports = exports;
 
-  return fsp.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2), 'utf-8');
+  return writeJson(packageJsonPath, packageJson);
 }
 
 type ToolInfo = Awaited<ReturnType<typeof initializeTools>>[number];
@@ -151,19 +156,11 @@ async function generateShadcnExports(toolInfos: ToolInfo[], ctx: Context) {
     };
   });
 
-  return fsp.writeFile(
-    shadcnExportsFile,
-    JSON.stringify(
-      {
-        // biome-ignore lint/style/useNamingConvention: ignore
-        $schema: './node_modules/@cmtlyt/unplugin-shadcn-registry-generate/configuration-schema.json',
-        exports,
-      },
-      null,
-      2,
-    ),
-    'utf-8',
-  );
+  return writeJson(shadcnExportsFile, {
+    // biome-ignore lint/style/useNamingConvention: ignore
+    $schema: './node_modules/@cmtlyt/unplugin-shadcn-registry-generate/configuration-schema.json',
+    exports,
+  });
 }
 
 function createContext(options: PluginAutoPatchFileOptions) {
@@ -215,7 +212,7 @@ async function generateDocMeta(namespaceInfos: NamespaceInfo[], metaMap: Record<
   return Promise.all(
     namespaceInfos.map(async ({ namespace, namespacePath }) => {
       const metaPath = path.resolve(namespacePath, '_meta.json');
-      fsp.writeFile(metaPath, JSON.stringify(metaMap[namespace], null, 2), 'utf-8');
+      return writeJson(metaPath, metaMap[namespace]);
     }),
   );
 }

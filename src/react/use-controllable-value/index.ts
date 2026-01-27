@@ -1,4 +1,3 @@
-import type { NotUnion } from '@s/types';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { $dt, $t, useValidData } from '../use-valid-data';
 
@@ -20,11 +19,25 @@ export type PublicUseControllableValueOptions<
   P extends Ks | (string & {}) = 'value',
 > = Partial<UseControllableValueOptions<Ks, P>>;
 
-type ValueType<T extends Record<PropertyKey, any>, P> = NotUnion<P> extends true
-  ? P extends keyof T
-    ? T[P]
-    : T['value']
-  : T['value'];
+type ParseDefaultValue<
+  OT extends Record<PropertyKey, any>,
+  O extends PublicUseControllableValueOptions,
+> = O['defaultValuePropName'] extends keyof OT ? OT[O['defaultValuePropName']] : O['defaultValue'];
+
+type Defaultize<
+  OT extends Record<PropertyKey, any>,
+  P extends keyof OT | (string & {}),
+  O extends PublicUseControllableValueOptions,
+> = P extends keyof OT
+  ? undefined extends OT[P]
+    ? OT[P] & ParseDefaultValue<OT, O>
+    : OT[P]
+  : ParseDefaultValue<OT, O>;
+
+type ValueType<
+  T extends Record<PropertyKey, any>,
+  O extends PublicUseControllableValueOptions<PropertyKey, any>,
+> = O['valuePropName'] extends keyof T ? Defaultize<T, O['valuePropName'], O> : Defaultize<T, 'value', O>;
 
 /**
  * 受控组件 value 逻辑切换, 如果传递了 value 则走受控逻辑, 否则走非受控逻辑
@@ -32,7 +45,8 @@ type ValueType<T extends Record<PropertyKey, any>, P> = NotUnion<P> extends true
 export function useControllableValue<
   T extends Record<PropertyKey, any>,
   P extends keyof T | (string & {}) = PropertyKey,
->(props = {} as T, options: PublicUseControllableValueOptions<keyof T, P> = {}) {
+  O extends PublicUseControllableValueOptions<keyof T, P> = PublicUseControllableValueOptions<keyof T, P>,
+>(props = {} as T, options = {} as O) {
   const { result: validOptions } = useValidData(options as UseControllableValueOptions, validInfo) as {
     result: UseControllableValueOptions;
   };
@@ -46,9 +60,9 @@ export function useControllableValue<
   const hasValueRef = useRef(Boolean(Reflect.getOwnPropertyDescriptor(props, valuePropName)));
   const isFirstRenderRef = useRef(true);
 
-  const [ctrlValue, setCtrlValue] = useState(hasValueRef.current ? (propValue as ValueType<T, P>) : defaultValue);
+  const [ctrlValue, setCtrlValue] = useState(hasValueRef.current ? (propValue as ValueType<T, O>) : defaultValue);
 
-  const setValue = useEffectEvent((value: ValueType<T, P>, ...args: any[]) => {
+  const setValue = useEffectEvent((value: ValueType<T, O>, ...args: any[]) => {
     if (typeof emitChange === 'function') {
       emitChange(value, ...args);
     }
@@ -62,8 +76,8 @@ export function useControllableValue<
       isFirstRenderRef.current = false;
       return;
     }
-    setCtrlValue(propValue as ValueType<T, P>);
+    setCtrlValue(propValue as ValueType<T, O>);
   }, [propValue]);
 
-  return [ctrlValue, setValue] as [ValueType<T, P>, typeof setValue];
+  return [ctrlValue, setValue] as [ValueType<T, O>, typeof setValue];
 }
