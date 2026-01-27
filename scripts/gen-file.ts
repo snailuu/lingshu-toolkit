@@ -6,6 +6,7 @@ import { config } from './config';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 pluginAutoPatchFile({
+  docGenIgnoreEntryCheck: false,
   registryUrl: config.registryUrl,
   mateFile: path.resolve(__dirname, '../meta/toolkit.meta.json'),
 });

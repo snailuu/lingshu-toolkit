@@ -4,8 +4,8 @@
   "name": "reactUseControllableValue",
   "description": "reactUseControllableValue",
   "registryDependencies": [
-    "./src/public/r/sharedTypes.json",
-    "./src/public/r/reactUseValidData.json"
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedTypes.json",
+    "https://cmtlyt.github.io/lingshu-toolkit/r/reactUseValidData.json"
   ],
   "dependencies": [
     "react",

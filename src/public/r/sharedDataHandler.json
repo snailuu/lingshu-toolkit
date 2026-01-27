@@ -4,7 +4,7 @@
   "name": "sharedDataHandler",
   "description": "sharedDataHandler",
   "registryDependencies": [
-    "./src/public/r/sharedThrowError.json"
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowError.json"
   ],
   "dependencies": [],
   "type": "registry:item",

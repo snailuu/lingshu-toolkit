@@ -4,7 +4,7 @@
   "name": "reactUseCounter",
   "description": "reactUseCounter",
   "registryDependencies": [
-    "./src/public/r/reactUseValidData.json"
+    "https://cmtlyt.github.io/lingshu-toolkit/r/reactUseValidData.json"
   ],
   "dependencies": [
     "react",

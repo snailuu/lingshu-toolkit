@@ -1,3 +1,3 @@
 export const config = {
-  registryUrl: './public/r',
+  registryUrl: 'https://cmtlyt.github.io/lingshu-toolkit/r',
 };
