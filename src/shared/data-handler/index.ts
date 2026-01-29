@@ -73,7 +73,7 @@ function errorProcess(errors: string[], errorHandler?: (error: string[]) => void
   if (errorHandler) {
     errorHandler(errors);
   } else if (strict) {
-    throwType(errors.join('\n'));
+    throwType('dataHandler', errors.join('\n'));
   }
 }
 
@@ -92,7 +92,7 @@ export function dataHandler<
   options?: O,
 ): { result: M & O['defaultValue']; errors: string[] } {
   if (!handler) {
-    throwType('handler is required');
+    throwType('dataHandler', 'handler is required');
   }
   const { strict = false, errorHandler, defaultValue } = options || {};
   const handlerIsFunction = typeof handler === 'function';

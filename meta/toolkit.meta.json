@@ -1,5 +1,11 @@
 {
   "$schema": "../plugins/auto-patch-file/schema.json",
   "shared": [{ "name": "dataHandler" }, { "name": "throwError" }, { "name": "types" }, { "name": "conditionMerge" }],
-  "react": [{ "name": "useControllableValue" }, { "name": "useCounter" }, { "name": "useValidData" }]
+  "react": [
+    { "name": "useControllableValue" },
+    { "name": "useCounter" },
+    { "name": "useValidData" },
+    { "name": "useToggle" },
+    { "name": "useBoolean" }
+  ]
 }

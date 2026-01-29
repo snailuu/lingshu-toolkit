@@ -1,8 +1,16 @@
+type Logger = {
+  [K in keyof Omit<Console, 'table'> as Console[K] extends (...args: any[]) => any ? K : never]: Console[K] extends (
+    ...args: [any, ...infer AS]
+  ) => infer R
+    ? (fnName: string, ...args: AS) => R
+    : never;
+};
+
 export const logger = new Proxy(console, {
   get(target, prop, receiver) {
     const oldLog = Reflect.get(target, prop, receiver).bind(console);
-    return (...args: any) => {
-      oldLog('[@cmtlyt/lingshu-toolkit]:', ...args);
+    return (fnName: string, ...args: any) => {
+      oldLog(`[@cmtlyt/lingshu-toolkit#${fnName}]:`, ...args);
     };
   },
-});
+}) as unknown as Logger;

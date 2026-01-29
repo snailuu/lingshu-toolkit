@@ -51,7 +51,7 @@ export function defineTransform<T extends Record<PropertyKey, any>>(
     }
     const handler = $t[item as keyof typeof $t];
     if (!handler) {
-      logger.warn(`${item} is not a valid type`);
+      logger.warn('defineTransform', `${item} is not a valid type`);
       continue;
     }
     verifyInfo[key] = handler();

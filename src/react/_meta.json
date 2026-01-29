@@ -13,5 +13,15 @@
     "type": "file",
     "label": "useValidData",
     "name": "use-valid-data/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "useBoolean",
+    "name": "use-boolean/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "useToggle",
+    "name": "use-toggle/index.mdx"
   }
 ]

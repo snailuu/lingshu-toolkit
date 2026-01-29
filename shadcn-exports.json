@@ -28,6 +28,14 @@
     {
       "name": "reactUseValidData",
       "path": "src/react/use-valid-data/index.ts"
+    },
+    {
+      "name": "reactUseToggle",
+      "path": "src/react/use-toggle/index.ts"
+    },
+    {
+      "name": "reactUseBoolean",
+      "path": "src/react/use-boolean/index.ts"
     }
   ]
 }

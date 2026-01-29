@@ -90,13 +90,13 @@ export function conditionMerge(...input: any) {
     }
     // 其余类型直接报错
     else {
-      throwType('conditionMerge: input must be an ConditionItem');
+      throwType('conditionMerge', 'input must be an ConditionItem');
     }
     // 校验 value 和 fullback 是否合法
     const validValue = valueCheck(result.value);
     const validFullback = typeof result.fullback === 'undefined' || valueCheck(result.fullback);
     if (!(validValue && validFullback)) {
-      throwType('conditionMerge: value and fullback must be an array or object');
+      throwType('conditionMerge', 'value and fullback must be an array or object');
     }
     return result;
   });
