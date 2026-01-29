@@ -1,0 +1,42 @@
+# useTitle
+
+> package version >0.1.1
+>
+> shadcn any version
+
+## install
+
+```bash title="pnpm"
+pnpm add -D @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/vueUseTitle.json
+```
+
+## usage
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue'
+// or
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title'
+
+// 基本使用
+useTitle('我的页面标题');
+
+// 获取返回值，手动控制
+const title = useTitle('初始标题');
+title.value = '新标题'; // 手动修改
+
+// 使用响应式数据
+const pageName = ref('Home');
+const title = useTitle(pageName);
+
+// 在模板中使用
+<template>
+  <input v-model="title" placeholder="修改标题" />
+</template>
+
+// 配置选项
+useTitle('页面标题', { restoreOnUnmount: false });
+```
