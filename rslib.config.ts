@@ -64,10 +64,10 @@ export default defineConfig({
         rspack: {
           plugins: [
             shadcnRegistryGenerate.rspack({
-              outputDir: './src/public/r',
-              basePath: '~/src/cmtlyt/lingshu-toolkit',
+              outputDir: config.shadcnRegistryPluginOutputDir,
+              basePath: config.shadcnRegistryPluginBasePath,
               registryUrl: config.registryUrl,
-              noRootRegistry: true,
+              noRootRegistry: config.shadcnRegistryPluginNoRoot,
             }),
           ],
         },

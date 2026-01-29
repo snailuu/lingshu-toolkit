@@ -25,6 +25,14 @@
     "./shared/*": {
       "types": "./dist/shared/*/index.d.ts",
       "import": "./dist/shared/*"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue/index.js"
+    },
+    "./vue/*": {
+      "types": "./dist/vue/*/index.d.ts",
+      "import": "./dist/vue/*"
     }
   },
   "scripts": {
@@ -32,6 +40,8 @@
     "build:docs": "rspress build",
     "check": "biome check --write",
     "dev:docs": "rspress dev",
+    "dev:registry": "pnpm dlx serve src/public -p 3000",
+    "preview:docs": "rspress preview",
     "format": "biome format --write",
     "test": "vitest --config=vitest.browser.config.ts --coverage.enabled --ui",
     "test:ci": "vitest run --config=vitest.browser.config.ts",

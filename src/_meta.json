@@ -6,6 +6,12 @@
     "activeMatch": "^/react/"
   },
   {
+    "text": "Vue",
+    "title": "Vue",
+    "link": "/vue/",
+    "activeMatch": "^/vue/"
+  },
+  {
     "text": "Shared",
     "title": "Shared",
     "link": "/shared/",
