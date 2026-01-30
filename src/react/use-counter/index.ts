@@ -1,6 +1,6 @@
 import { useEffectEvent, useMemo, useRef, useState } from 'react';
+import { $dt, $t, useValidData } from '@/react/use-valid-data';
 import { logger } from '@/shared/logger';
-import { $dt, $t, useValidData } from '../use-valid-data';
 
 interface UseCounterOptions {
   min: number;

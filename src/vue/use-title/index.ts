@@ -1,5 +1,5 @@
 import { type MaybeRefOrGetter, onScopeDispose, ref, toValue, watch } from 'vue';
-import { $dt, $t, dataHandler } from '../../shared';
+import { $dt, $t, dataHandler } from '@/shared/data-handler';
 
 interface UseTitleOptions {
   restoreOnUnmount: boolean;

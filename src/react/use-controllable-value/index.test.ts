@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { renderHook } from 'vitest-browser-react';
-import { useControllableValue } from '../index';
+import { useControllableValue } from './index';
 
 describe('useControllableValue', () => {
   const setUp = (...args: Parameters<typeof useControllableValue>) => renderHook(() => useControllableValue(...args));

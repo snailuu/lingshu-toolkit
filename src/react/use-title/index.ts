@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { $dt, $t, useValidData } from '../use-valid-data';
+import { $dt, $t, useValidData } from '@/react/use-valid-data';
 
 interface UseTitleOptions {
   restoreOnUnmount: boolean;
