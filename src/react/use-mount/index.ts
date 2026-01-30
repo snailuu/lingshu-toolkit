@@ -1,0 +1,11 @@
+import { useEffect, useRef } from 'react';
+import { $t, dataHandler } from '../../shared';
+
+export function useMount(callback: () => any) {
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    dataHandler({ fn: callbackRef.current }, { fn: $t.function() }, { strict: true });
+    callbackRef.current();
+  }, []);
+}

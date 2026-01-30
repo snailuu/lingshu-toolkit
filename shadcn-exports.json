@@ -42,6 +42,10 @@
       "path": "src/react/use-title/index.ts"
     },
     {
+      "name": "reactUseMount",
+      "path": "src/react/use-mount/index.ts"
+    },
+    {
       "name": "vueUseTitle",
       "path": "src/vue/use-title/index.ts"
     }

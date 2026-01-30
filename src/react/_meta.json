@@ -23,5 +23,10 @@
     "type": "file",
     "label": "useToggle",
     "name": "use-toggle/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "useMount",
+    "name": "use-mount/index.mdx"
   }
 ]
