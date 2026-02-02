@@ -42,7 +42,7 @@ describe('useRefState', () => {
     expect(result.current[0]).toEqual({ num: 2, str: '0' });
   });
 
-  test.todo('组件中使用', async () => {
+  test('组件中使用', async () => {
     const App = () => {
       const [state, ctrl] = useRefState({ num: 0, str: '0' });
       return (

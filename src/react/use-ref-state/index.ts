@@ -10,11 +10,12 @@ export interface UseRefStateCtrl<T> {
 }
 
 export function useRefState<T>(initialState: T) {
-  const origin = useRef(initialState);
   const stateRef = useRef(initialState);
   const forceUpdate = useForceUpdate();
 
   const ctrl = useMemo<UseRefStateCtrl<T>>(() => {
+    const origin = structuredClone(stateRef.current);
+
     const updateHandler = (update = true) => void (update && forceUpdate());
 
     const patchState: UseRefStateCtrl<T>['patchState'] = (updater, update = true) => {
@@ -32,7 +33,7 @@ export function useRefState<T>(initialState: T) {
       forceUpdate,
       getState: () => stateRef.current,
       setState,
-      reset: (update = true) => setState(origin.current, update),
+      reset: (update = true) => setState(structuredClone(origin), update),
     };
   }, [forceUpdate]);
 
