@@ -33,14 +33,6 @@
     "./vue/*": {
       "types": "./dist/vue/*/index.d.ts",
       "import": "./dist/vue/*"
-    },
-    "./aaa": {
-      "types": "./dist/aaa/index.d.ts",
-      "import": "./dist/aaa/index.js"
-    },
-    "./aaa/*": {
-      "types": "./dist/aaa/*/index.d.ts",
-      "import": "./dist/aaa/*"
     }
   },
   "scripts": {

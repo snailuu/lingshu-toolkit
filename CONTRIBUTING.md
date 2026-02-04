@@ -20,6 +20,12 @@ pnpm test
 
 ```
 
+## 通用规范
+
+### 测试覆盖率要求
+
+所有代码（包括 Hook 和 Shared 工具）的测试覆盖率必须达到 100%。
+
 ## 项目结构
 
 ```text
@@ -77,6 +83,8 @@ pnpm run script:gen-file
 
 这会自动创建框架目录结构和文件模板。
 
+**注意**：namespace 文档需要手动创建并在 `src/_meta.json` 中注册。
+
 3. **构建配置**
 - 在 `rslib.config.ts` 中添加对应的构建入口
 - 在 `package.json` 的 `exports` 字段中添加导出路径
@@ -113,10 +121,6 @@ export function useExample(defaultValue: string) {
 ```
 
 ### 测试规范
-
-#### 测试覆盖率要求
-
-100%
 
 #### 测试内容
 
@@ -176,11 +180,9 @@ export function exampleUtil(input: string): string {
 
 ### 测试规范
 
-#### 测试覆盖率要求
-
-100%
-
 #### 测试文件命名
+
+Shared 工具需要根据运行环境选择测试文件后缀：
 
 - 通用环境（Node.js + 浏览器）：`index.test.ts`
 - 仅浏览器环境：`index.test.browser.ts` 或 `index.test.browser.tsx`
