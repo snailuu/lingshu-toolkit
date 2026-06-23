@@ -99,7 +99,7 @@ interface HistoryTree<T> {
    *   5. 修改拓扑：每个 child.parentId 改为 removed.parentId；
    *      parent.childrenIds 中的 nodeId 位置被替换为 [...child ids in order]
    *   6. 从 nodes Map 中删除 nodeId
-   *   7. 若 currentId === nodeId，按策略回退（'parent' → removed.parentId；'children-first' → 首个子节点 id，无子时回退到 parent）
+   *   7. 若 currentId === nodeId，按策略回退（'parent' → removed.parentId；'first-child' → 首个子节点 id，无子时回退到 parent）
    *   8. 触发一次 onChange
    *
    * @param nodeId 要删除的节点 id
@@ -107,7 +107,7 @@ interface HistoryTree<T> {
    *   全量场景可省略，省略时被删节点的 data 直接丢弃，子节点 data 保持不变
    * @param options.onCurrentDeleted currentId === nodeId 时的回退策略
    *   - `'parent'`（默认）：currentId 回退到被删节点的 parentId
-   *   - `'children-first'`：currentId 切换到被删节点的首个 child（若有），否则回退到 parent
+   *   - `'first-child'`：currentId 切换到被删节点的首个 child（若有），否则回退到 parent
    *   - `'throw'`：直接抛错，调用方需先手动 checkout
    *
    * @throws 节点不存在、传入根节点 id、或 currentId 命中且策略为 'throw' 时抛出
@@ -116,7 +116,7 @@ interface HistoryTree<T> {
     nodeId: string,
     options?: {
       mergeData?: (removedData: T, childData: T) => T
-      onCurrentDeleted?: 'parent' | 'children-first' | 'throw'
+      onCurrentDeleted?: 'parent' | 'first-child' | 'throw'
     },
   ): void
 
@@ -341,7 +341,7 @@ tree.checkout('3')
 tree.remove('3', { onCurrentDeleted: 'parent' })
 // currentId 从 '3' → '1'
 
-tree.remove('3', { onCurrentDeleted: 'children-first' })
+tree.remove('3', { onCurrentDeleted: 'first-child' })
 // currentId 从 '3' → '4'（v3 的首个 child）
 // 若 v3 没有 child（叶子），fallback 到 parent '1'
 
@@ -467,8 +467,8 @@ tree.compact({ mergeData: mergePatch })
 | 21 | **remove - 不传 mergeData** | 子节点 data 保持不变；不调用 mergeData |
 | 22 | **remove - 差量场景验证 mergeData** | 提供 patch merger，验证 mergeData 返回值写回 child.data |
 | 23 | **remove - currentId 命中（默认 parent）** | currentId 回退到 parentId |
-| 24 | **remove - currentId 命中（children-first 有 child）** | currentId 切到首个 child |
-| 25 | **remove - currentId 命中（children-first 无 child）** | currentId fallback 到 parent |
+| 24 | **remove - currentId 命中（first-child 有 child）** | currentId 切到首个 child |
+| 25 | **remove - currentId 命中（first-child 无 child）** | currentId fallback 到 parent |
 | 26 | **remove - currentId 命中（throw 策略）** | 抛错，树状态不变 |
 | 27 | **remove - 根节点抛错** | 调用 `tree.remove(rootId)` 抛错且不修改树 |
 | 28 | **remove - 节点不存在抛错** | 错误信息匹配 RFC 01 既有格式 |
@@ -526,4 +526,3 @@ tree.compact({ mergeData: mergePatch })
 - 是否需要在 `createHistoryTree` 配置中加 `storageMode: 'full' | 'diff'`，从而让框架在差量模式下强制 mergeData？倾向不加——增加主入口配置项的复杂度换不来太多保护；调用方自己清楚自己的存储模式
 - `compact` 是否需要返回被合并节点的 id 列表（便于外部清理引用）？当前仅返回数量；如外部确有此需求可演进为 `{ count, removedIds }` 形态。倾向先保持 `number`，待真实场景出现再扩展
 - 是否提供"批量破坏性操作 + 单次通知"的事务 API（如 `batch(() => { ... })`）？目前每个方法内部已合并通知；跨方法的事务批处理属于后续话题
-- `remove` 的 `onCurrentDeleted: 'children-first'` 策略命名是否清晰？候选：`'first-child'` / `'descend'` / `'into-child'`。倾向 `'children-first'`，对齐"父优先 / 子优先"的直觉
