@@ -91,6 +91,12 @@ export interface BaseAPIConfig<
    * 请求前 hook
    *
    * @description hook 顺序: tdto -> onRequest -> onResponse/parser -> tvo
+   *
+   * @tips 返回值语义随 requestMode 变化:
+   * - `network`(默认): 返回 `Response` 短路请求(不再发起网络请求), 返回 `Request` 替换待发送的请求,
+   *   返回 `undefined`/`null` 发送原请求; 其余返回值会被忽略并输出一次告警
+   * - `mock`: 返回值直接作为响应体使用
+   * - `requestModeMap` 自定义模式: 不会执行此 hook, 由自定义实现自行决定
    */
   onRequest?:
     | ((req: Request, config: RequestAPIConfig<Input, Output, ReqOutput, ResOutput, ReqModeMapKeys>) => ReqOutput)

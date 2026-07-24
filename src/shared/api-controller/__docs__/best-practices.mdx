@@ -187,10 +187,10 @@ const getUserApi = defineApi({
   method: 'GET',
   async onRequest(req, config) {
     const cacheKey = `user:${config.params.id}`
+    // network 模式下必须返回 Response 才能短路请求, 返回裸数据会被忽略
     if (cache.has(cacheKey)) {
-      return cache.get(cacheKey)
+      return new Response(JSON.stringify(cache.get(cacheKey)))
     }
-    return req
   },
   tvo(data) {
     const cacheKey = `user:${data.id}`
@@ -262,9 +262,10 @@ const getUserApi = defineApi({
 ### ⚠️ 请求模式
 
 - `mock` 模式会使用 `onRequest` 返回的数据作为响应
-- `network` 模式会发送真实的网络请求
+- `network` 模式会发送真实的网络请求，并在发送前执行 `onRequest`
+- `network` 模式下 `onRequest` 返回 `Response` 短路请求、返回 `Request` 替换原请求，其余返回值会被忽略并输出一次告警
 - 可以通过 `requestModeMap` 自定义请求模式
-- 自定义请求模式会绕过默认的 hook 链
+- 自定义请求模式会绕过默认的 hook 链（不会执行 `onRequest`）
 
 ### ⚠️ 响应解析
 

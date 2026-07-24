@@ -1,6 +1,6 @@
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import type { Equal } from '@/shared/types';
 import { createApi, createApiWithMap, defineApi, defineApiMap, request } from '../index';
 
@@ -112,6 +112,145 @@ describe('apiController', () => {
 
     const res2 = await customApi.user.getInfoCustom({ id: '1' }, { requestMode: 'network' });
     expect(res2).toEqual({ id: '1', name: 'John Doe', age: 18 });
+  });
+
+  test('默认 network 模式执行 onRequest', async () => {
+    let receivedHeader: string | null = null;
+    server.use(
+      http.get('https://api.example.com/network-on-request', (req) => {
+        receivedHeader = req.request.headers.get('x-request-hook');
+        return HttpResponse.json({ id: '1', name: 'John Doe' });
+      }),
+    );
+    const onRequest = vi.fn((hookRequest: Request) => {
+      hookRequest.headers.set('x-request-hook', 'executed');
+    });
+    const api = createApi(
+      defineApi({
+        url: '/network-on-request',
+        onRequest,
+      }),
+      { baseUrl: 'https://api.example.com' },
+    );
+
+    const response = await api({ id: '1' });
+
+    expect(response).toEqual({ id: '1', name: 'John Doe' });
+    expect(onRequest).toHaveBeenCalledTimes(1);
+    const calledRequest = onRequest.mock.calls[0]?.[0];
+    expect(calledRequest).toBeInstanceOf(Request);
+    expect(calledRequest?.headers.get('x-request-hook')).toBe('executed');
+    expect(receivedHeader).toBe('executed');
+  });
+
+  test('默认 network 模式使用 onRequest 返回的 Response', async () => {
+    const networkHandler = vi.fn(() => HttpResponse.json({ id: '1', name: 'Network User' }));
+    server.use(http.get('https://api.example.com/network-on-request-response', networkHandler));
+    const onRequest = vi.fn(async () => HttpResponse.json({ id: '1', name: 'Hook User' }));
+    const api = createApi(
+      defineApi({
+        url: '/network-on-request-response',
+        onRequest,
+      }),
+      { baseUrl: 'https://api.example.com' },
+    );
+
+    const response = await api({ id: '1' });
+
+    expect(response).toEqual({ id: '1', name: 'Hook User' });
+    expect(onRequest).toHaveBeenCalledTimes(1);
+    expect(networkHandler).not.toHaveBeenCalled();
+  });
+
+  test('默认 network 模式使用 onRequest 返回的 Request', async () => {
+    let receivedHeader: string | null = null;
+    server.use(
+      http.get('https://api.example.com/network-on-request-replacement', (req) => {
+        receivedHeader = req.request.headers.get('x-request-hook');
+        return HttpResponse.json({ id: '1', name: 'Replacement User' });
+      }),
+    );
+    const onRequest = vi.fn((hookRequest: Request) => {
+      const headers = new Headers(hookRequest.headers);
+      headers.set('x-request-hook', 'replacement');
+      return new Request(hookRequest, { headers });
+    });
+    const api = createApi(
+      defineApi({
+        url: '/network-on-request-replacement',
+        onRequest,
+      }),
+      { baseUrl: 'https://api.example.com' },
+    );
+
+    const response = await api({ id: '1' });
+
+    expect(response).toEqual({ id: '1', name: 'Replacement User' });
+    expect(onRequest).toHaveBeenCalledTimes(1);
+    expect(receivedHeader).toBe('replacement');
+  });
+
+  test('默认 network 模式下 onRequest 可替换带 body 的请求', async () => {
+    let receivedBody: unknown = null;
+    server.use(
+      http.post('https://api.example.com/network-on-request-post', async (req) => {
+        receivedBody = await req.request.json();
+        return HttpResponse.json({ id: '1', name: 'Post User' });
+      }),
+    );
+    // body 已被 hook 消费, 必须基于 url 重建 Request, 不能直接 new Request(hookRequest, init)
+    const onRequest = vi.fn(async (hookRequest: Request) => {
+      const body = (await hookRequest.json()) as Record<string, unknown>;
+      return new Request(hookRequest.url, {
+        method: hookRequest.method,
+        headers: hookRequest.headers,
+        body: JSON.stringify({ ...body, injected: true }),
+      });
+    });
+    const api = createApi(
+      defineApi({
+        url: '/network-on-request-post',
+        method: 'POST',
+        onRequest,
+      }),
+      { baseUrl: 'https://api.example.com' },
+    );
+
+    const response = await api({ id: '1' });
+
+    expect(response).toEqual({ id: '1', name: 'Post User' });
+    expect(receivedBody).toEqual({ id: '1', injected: true });
+  });
+
+  test('默认 network 模式忽略 onRequest 的非法返回值并只告警一次', async () => {
+    const networkHandler = vi.fn(() => HttpResponse.json({ id: '1', name: 'Network User' }));
+    server.use(http.get('https://api.example.com/network-on-request-invalid', networkHandler));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => void 0);
+    const onRequest = vi.fn(() => {
+      return { id: '1', name: 'Ignored User' };
+    });
+    const api = createApi(
+      defineApi({
+        url: '/network-on-request-invalid',
+        onRequest,
+      }),
+      { baseUrl: 'https://api.example.com' },
+    );
+
+    const response = await api({ id: '1' });
+
+    expect(response).toEqual({ id: '1', name: 'Network User' });
+    expect(networkHandler).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('apiController.onRequest');
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('"object"');
+
+    // 同一个 onRequest 重复触发时不再重复告警
+    await api({ id: '1' });
+    expect(networkHandler).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
   });
 
   test('create api error', () => {
