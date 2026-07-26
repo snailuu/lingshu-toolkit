@@ -6,7 +6,7 @@
 >
 > create time: 2026/06/22 10:30:00
 >
-> rfc version: 0.1.0
+> rfc version: 0.2.0
 >
 > scope: `src/shared/history-tree`
 >
@@ -16,6 +16,7 @@
 
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| 0.2.0 | 2026/06/27 | 响应评审：`prune` 增加 `includeSelf` 控制是否删除选中节点；`onChange` 增加可选事件参数并在 `prune` / `compact` 事件中返回被删除节点；新增 `previewRemove` / `previewPrune` / `previewCompact` 非破坏检测方法返回受影响节点 |
 | 0.1.0 | 2026/06/22 | 初稿：拆出"破坏性操作"独立 RFC；新增 `remove` 单点删除 / `prune` 子树删除 / `compact` 线性压缩三个 API；引入 `mergeData` 数据合并钩子统一回答"全量 vs 差量"场景的语义问题 |
 
 ## 背景与动机
@@ -53,10 +54,12 @@ RFC 01 评审过程中曾把"删单点保后代"列为非目标，理由是"有�
 ### 目标
 
 - 提供 `remove(nodeId, options?)` 单点删除节点，子节点自动提升到父节点位置（保持原有 childrenIds 顺序）
-- 提供 `prune(nodeId, options?)` 删除节点及其全部后代子树（批量回收一片"失败分支"）
+- 提供 `prune(nodeId, options?)` 删除节点及其后代子树；通过 `includeSelf` 控制是否同时删除选中节点（批量回收一片"失败分支"，也支持"只清空子树"）
 - 提供 `compact(options?)` 批量合并"线性链"中间节点（自动整理深而细的历史）
 - 引入**统一的数据合并钩子** `mergeData(removedData, survivorData) => T`，让调用方显式决定差量/全量场景下被删节点的 data 如何处理
 - 所有破坏性操作均为**显式**：不调用就不破坏；调用一次就明确一次
+- 为三个破坏性操作提供对应的**非破坏检测方法**：传入相同参数，返回本次会受影响的节点；没有节点受影响时返回空数组
+- `onChange` 增加可选事件参数，便于调用方在 `prune` / `compact` 后清理外部引用
 - 不修改 [RFC 01](../01-history-tree/RFC.md) 既有 API 的任何行为
 
 ### 非目标
@@ -72,20 +75,38 @@ RFC 01 评审过程中曾把"删单点保后代"列为非目标，理由是"有�
 | 名词 | 含义 |
 | --- | --- |
 | Remove（单点删除） | 删除指定节点 N，N 的所有子节点提升到 N.parentId 下，占据 N 在 parent.childrenIds 中的原位置（保持顺序） |
-| Prune（剪枝） | 删除指定节点及其全部后代子树 |
+| Prune（剪枝） | 默认删除指定节点及其全部后代子树；当 `includeSelf: false` 时，仅删除其全部后代并保留指定节点本身 |
 | Compact（压缩） | 批量合并仅有单一子节点的"线性链"中间节点（本质上是对每个可合并节点执行一次 remove） |
 | mergeData（数据合并钩子） | 调用方提供的纯函数 `(removedData, survivorData) => T`，告诉框架被删节点的 data 如何合并到留下的节点。差量场景必传 |
 | Storage 模式（全量 / 差量） | 调用方在 `commit` 时实际写入节点的 data 形态。本工具对此无感，但破坏性操作的语义与之强相关 |
+| Affected Node（受影响节点） | 在破坏性操作中，其存在性、`data`、`parentId` 或 `childrenIds` 会发生变化的节点。检测方法返回的是操作前的节点快照 |
+| Change Event（变更事件） | `onChange` 的第二个可选参数，描述本次变更类型与被删除 / 受影响节点，便于调用方同步外部缓存 |
 
 ## API 设计
 
-### 新增三个方法
+### 新增破坏性方法、检测方法与事件类型
 
-在 [RFC 01 的 `HistoryTree<T>` 接口](../01-history-tree/RFC.md#返回值historytree)上**追加**三个方法（不修改既有方法的签名与行为）：
+在 [RFC 01 的 `HistoryTree<T>` 接口](../01-history-tree/RFC.md#返回值historytree)上**追加**三类破坏性方法、三类非破坏检测方法，并扩展 `onChange` listener 的事件参数（不修改既有方法的签名与行为）：
 
 ```ts
+interface HistoryTreeChangeEvent<T> {
+  /** 触发本次变更的操作类型 */
+  type: 'commit' | 'checkout' | 'remove' | 'prune' | 'compact'
+
+  /** 本次操作删除的节点快照；commit / checkout 为空数组 */
+  removedNodes: HistoryNodeInfo<T>[]
+
+  /** 本次操作受影响的节点快照；无节点受影响时为空数组 */
+  affectedNodes: HistoryNodeInfo<T>[]
+}
+
 interface HistoryTree<T> {
   // ...... RFC 01 已有的 commit / checkout / getPathData / ... 等方法
+
+  /**
+   * 注册变更监听器。第二个参数为可选事件对象；旧调用方只接收 snapshot 时仍兼容。
+   */
+  onChange(listener: (snapshot: HistoryTreeSnapshot<T>, event?: HistoryTreeChangeEvent<T>) => void): () => void
 
   /**
    * 【破坏性操作】单点删除：从树中删除 nodeId，其所有子节点提升到 nodeId.parentId 下，
@@ -100,7 +121,7 @@ interface HistoryTree<T> {
    *      parent.childrenIds 中的 nodeId 位置被替换为 [...child ids in order]
    *   6. 从 nodes Map 中删除 nodeId
    *   7. 若 currentId === nodeId，按策略回退（'parent' → removed.parentId；'first-child' → 首个子节点 id，无子时回退到 parent）
-   *   8. 触发一次 onChange
+   *   8. 触发一次 onChange，event.removedNodes = [removed]，event.affectedNodes = previewRemove(...) 的结果
    *
    * @param nodeId 要删除的节点 id
    * @param options.mergeData 合并被删节点 data 到每个子节点的纯函数。差量场景**必传**，否则节点链会断；
@@ -121,33 +142,64 @@ interface HistoryTree<T> {
   ): void
 
   /**
-   * 【破坏性操作】子树删除：删除指定节点及其全部后代子树，不可恢复
+   * 【非破坏检测】预览 remove 会影响的所有节点，返回操作前的节点快照。
+   * 返回顺序：被删除节点 → 父节点（若存在）→ 子节点（按 childrenIds 顺序）。
+   * 校验规则与 remove 一致；不会调用 mergeData，不会修改树，不会触发 onChange。
+   */
+  previewRemove(
+    nodeId: string,
+    options?: {
+      mergeData?: (removedData: T, childData: T) => T
+      onCurrentDeleted?: 'parent' | 'first-child' | 'throw'
+    },
+  ): HistoryNodeInfo<T>[]
+
+  /**
+   * 【破坏性操作】子树删除：默认删除指定节点及其全部后代子树；
+   * 当 includeSelf 为 false 时，只删除指定节点的全部后代，保留指定节点本身
    *
    * 执行顺序（同 remove 的不变量）：
    *   1. 校验 nodeId 存在
-   *   2. 校验 nodeId 不是根节点
-   *   3. 若 currentId 落入被删子树且 options.onCurrentDeleted === 'throw' → 抛错
-   *   4. 将 nodeId 从其父节点的 childrenIds 中移除；从 nodes Map 中删除 nodeId 及其所有后代
-   *   5. 若 currentId 已被删除，按策略回退
-   *   6. 触发一次 onChange
+   *   2. 当 includeSelf !== false 时，校验 nodeId 不是根节点；includeSelf === false 时允许传 rootId（语义为清空整棵树的非根节点）
+   *   3. 计算被删除节点集合：includeSelf !== false 时为 nodeId + 全部后代；includeSelf === false 时仅为全部后代
+   *   4. 若被删除节点集合为空 → 返回 []，不触发 onChange
+   *   5. 若 currentId 落入被删集合且 options.onCurrentDeleted === 'throw' → 抛错
+   *   6. 从 nodes Map 中删除被删集合；同步更新保留节点的 childrenIds
+   *      - includeSelf !== false：将 nodeId 从其父节点 childrenIds 中移除
+   *      - includeSelf === false：将 nodeId.childrenIds 清空
+   *   7. 若 currentId 已被删除，按策略回退
+   *      - includeSelf !== false 且策略为 parent：回退到被删根节点的 parentId
+   *      - includeSelf === false 且策略为 parent：回退到 nodeId（因为 nodeId 被保留）
+   *   8. 触发一次 onChange，event.removedNodes 为本次被删节点，event.affectedNodes = previewPrune(...) 的结果
    *
    * 注意：prune **不接受 mergeData**——整棵子树都被丢弃，"合并到谁"无语义可言。
    * 若需要在删之前对子树的 data 做汇总，调用方应在外部用 getNode / getSnapshot 自行处理后再调 prune
    *
-   * @param nodeId 子树根节点 id（含此节点本身 + 全部后代）
+   * @param nodeId 子树根节点 id
+   * @param options.includeSelf 是否删除 nodeId 本身，默认 true；false 时仅删除 nodeId 的后代
    * @param options.onCurrentDeleted currentId 落入被删子树时的回退策略
-   *   - `'parent'`（默认）：currentId 回退到被删根节点的 parentId
+   *   - `'parent'`（默认）：includeSelf 为 true 时回退到被删根节点的 parentId；includeSelf 为 false 时回退到 nodeId
    *   - `'root'`：currentId 回退到 rootId
    *   - `'throw'`：直接抛错
    *
-   * @returns 被删除的节点 id 列表（**后序 DFS**：先访问全部后代再访问自身，便于按"子先父后"释放外部引用）
+   * @returns 被删除的节点 id 列表（**后序 DFS**：先访问全部后代再访问自身，便于按"子先父后"释放外部引用）；无节点被删除时返回 []
    *
-   * @throws 节点不存在、传入根节点 id、或 currentId 落入子树且策略为 'throw' 时抛出
+   * @throws 节点不存在、includeSelf !== false 时传入根节点 id、或 currentId 落入被删集合且策略为 'throw' 时抛出
    */
   prune(
     nodeId: string,
-    options?: { onCurrentDeleted?: 'parent' | 'root' | 'throw' },
+    options?: { includeSelf?: boolean; onCurrentDeleted?: 'parent' | 'root' | 'throw' },
   ): string[]
+
+  /**
+   * 【非破坏检测】预览 prune 会影响的所有节点，返回操作前的节点快照。
+   * 返回顺序：被删除节点（后序 DFS）→ 被修改 childrenIds 的保留节点（父节点或 nodeId）。
+   * 无节点会被删除时返回 []；校验规则与 prune 一致；不会修改树，不会触发 onChange。
+   */
+  previewPrune(
+    nodeId: string,
+    options?: { includeSelf?: boolean; onCurrentDeleted?: 'parent' | 'root' | 'throw' },
+  ): HistoryNodeInfo<T>[]
 
   /**
    * 【破坏性操作】批量压缩：对整棵树扫描，把所有满足条件的"线性中间节点"用一次 remove 合并掉
@@ -168,25 +220,35 @@ interface HistoryTree<T> {
    *
    * @param options.mergeData 数据合并函数，语义与 remove 完全一致；差量场景必传
    * @param options.keep 节点保护函数；返回 true 时该节点不会被合并
-   * @returns 本次调用合并掉的节点数量；为 0 时不触发 onChange
+   * @returns 本次调用合并掉的节点 id 列表（root-to-leaf 顺序）；为空数组时不触发 onChange
    */
   compact(options?: {
     mergeData?: (removedData: T, childData: T) => T
     keep?: (node: HistoryNodeInfo<T>) => boolean
-  }): number
+  }): string[]
+
+  /**
+   * 【非破坏检测】预览 compact 会影响的所有节点，返回操作前的节点快照。
+   * 返回顺序：会被合并删除的候选节点（root-to-leaf 顺序）→ 每个候选的 child → 每个候选的 parent 去重后结果。
+   * 无候选节点时返回 []；不会调用 mergeData，不会修改树，不会触发 onChange。
+   */
+  previewCompact(options?: {
+    mergeData?: (removedData: T, childData: T) => T
+    keep?: (node: HistoryNodeInfo<T>) => boolean
+  }): HistoryNodeInfo<T>[]
 }
 ```
 
 ### onChange 触发更新
 
-[RFC 01](../01-history-tree/RFC.md#返回值historytree) 的 `onChange` listener 触发来源扩展至：**`commit` / `checkout` / `remove` / `prune` / `compact`**。回调参数仍是最新的 `HistoryTreeSnapshot<T>`。
+[RFC 01](../01-history-tree/RFC.md#返回值historytree) 的 `onChange` listener 触发来源扩展至：**`commit` / `checkout` / `remove` / `prune` / `compact`**。第一个回调参数仍是最新的 `HistoryTreeSnapshot<T>`；第二个回调参数为可选 `HistoryTreeChangeEvent<T>`，旧代码 `(snapshot) => {}` 不需要修改。
 
 | 操作 | 触发约定 |
 |---|---|
 | `commit`、`checkout` | 维持 RFC 01 既有行为（即使 checkout 到当前节点也触发，是 v0.1.0 既定行为） |
-| `remove` | 必然产生状态变化 → **一次** onChange |
-| `prune` | 必然产生状态变化（已排除 root，目标节点至少自身被删）→ **一次** onChange |
-| `compact` | 合并数 > 0 时**一次** onChange；合并数 = 0 时**不触发**，避免无意义通知 |
+| `remove` | 必然产生状态变化 → **一次** onChange；`event.removedNodes` 包含被删节点，`event.affectedNodes` 与 `previewRemove` 一致 |
+| `prune` | 被删除节点数 > 0 时 **一次** onChange；`event.removedNodes` 为本次被删节点，`event.affectedNodes` 与 `previewPrune` 一致；被删除节点数 = 0 时不触发 |
+| `compact` | 合并节点数 > 0 时 **一次** onChange；`event.removedNodes` 为本次合并删除的节点，`event.affectedNodes` 与 `previewCompact` 一致；合并节点数 = 0 时**不触发**，避免无意义通知 |
 
 `compact` 的"无变化不通知"与 `checkout` 的"无变化也通知"不对称——这是有意的前向改进，不变更 v0.1.0 既有行为。
 
@@ -267,7 +329,7 @@ tree.remove('1', { mergeData: (a, b) => merge(a, b) })
 
 #### 为什么不创建新节点？
 
-- **保持 id 稳定**：调用方在外部缓存了 child id 时不需要刷新（只需在 `onChange` 中关心被删的 id）；如果合并产生新 id，所有外部 id 引用都会失效
+- **保持 id 稳定**：调用方在外部缓存了 child id 时不需要刷新（可通过 `onChange` 的 `event.removedNodes` / `event.affectedNodes` 清理或刷新外部引用）；如果合并产生新 id，所有外部 id 引用都会失效
 - **不引入"合并提交"概念**：RFC 01 已经把"节点 = `commit()` 的结果"作为基础语义；如果破坏性操作能"在 `commit()` 之外新建节点"，调用方就要面对两套节点创建语义，理解与排查成本提高
 - **可由调用方显式组合表达**：若调用方真的需要"用合并结果新建一个节点"，可以 `prune` 老子树 + 用合并后的 data 调 `commit`；这种用法应该是显式而非隐式的
 
@@ -279,7 +341,7 @@ tree.remove('1', { mergeData: (a, b) => merge(a, b) })
 | `child.parentId` / `child.childrenIds` | 拓扑变化时由框架同步 |
 | `child.data` | **被新值覆盖** |
 | 监听器在不同时刻收到的 snapshot | 同一个 id 可能呈现**不同 data**（不是 bug，是预期行为） |
-| 业务层外部缓存的 `{id, data}` 副本 | 需要在 `onChange` 中刷新对应条目 |
+| 业务层外部缓存的 `{id, data}` 副本 | 需要在 `onChange` 中根据 `event.removedNodes` 清理失效条目，并根据 `event.affectedNodes` 刷新受影响条目 |
 
 #### 与 commit 的语义区别
 
@@ -287,7 +349,7 @@ tree.remove('1', { mergeData: (a, b) => merge(a, b) })
 |---|---|---|---|
 | `commit(data)` | **新建** | 新节点 | 当前节点下新增子节点 |
 | `remove(id, {mergeData})` | 不变 | **覆盖每个 child 的 data** | 拆掉一个节点 |
-| `prune(id)` | 不变 | 不修改任何 data | 拆掉整棵子树 |
+| `prune(id, {includeSelf?})` | 不变 | 不修改任何 data | 拆掉整棵子树，或只清空指定节点的后代 |
 | `compact({mergeData})` | 不变（保留的子节点） | **覆盖保留节点的 data** | 拆掉所有"线性中间节点" |
 
 ## 破坏性操作语义详解
@@ -372,6 +434,20 @@ tree.prune('4')
 // v3.childrenIds 从 ['4', '7'] 变为 ['7']
 ```
 
+#### 仅删除选中节点的后代（保留选中节点）
+
+```ts
+tree.prune('4', { includeSelf: false })
+// 返回 ['5', '9', '8']（后序 DFS，不包含 '4'）
+// v4 被保留，v4.childrenIds 从 ['5', '8'] 变为 []
+
+// includeSelf: false 允许传 rootId，用于清空整棵树的非根节点
+tree.prune(rootId, { includeSelf: false })
+// root 保留，所有非根节点被删除
+```
+
+如果 `includeSelf: false` 且目标节点没有后代，`prune` 返回 `[]`，不触发 `onChange`。
+
 #### 当前节点落入被删子树
 
 ```ts
@@ -412,7 +488,7 @@ v0 ── v3 ──┬── v4
 - v4 是叶子，不参与
 - v5 是 current，不参与
 
-最终：v3 的 **id 不变**，data 等价于 `mergeData(mergeData(v1.data, v2.data), v3.data)`；返回 `2`
+最终：v3 的 **id 不变**，data 等价于 `mergeData(mergeData(v1.data, v2.data), v3.data)`；返回 `['1', '2']`（被合并删除的节点 id 列表）
 
 #### 保护策略
 
@@ -436,7 +512,7 @@ tree.compact({ mergeData: mergePatch })
 
 - **差量场景必传 mergeData**：框架不检测、不保护。不传 → 数据链一定断
 - **mergeData 必须是纯函数**：不可有副作用；同样的输入必须返回同样的输出。compact 处理多个候选时是 **fold-left 风格的串联累积**——每次 `mergeData` 的输入是已被前面步骤覆盖过的 data，调用方实现需对这种累积保持稳定（典型如 patch 串接、深合并等天然满足）
-- **外部持有的节点 id**：`remove` / `prune` / `compact` 都会让被删节点的 id 失效。业务层在外部缓存了 id 时需要在 `onChange` 中同步清理或用 `keep` 保护
+- **外部持有的节点 id**：`remove` / `prune` / `compact` 都会让被删节点的 id 失效。业务层在外部缓存了 id 时，可以先调用 `previewRemove` / `previewPrune` / `previewCompact` 预估影响范围，也可以在 `onChange` 中根据 `event.removedNodes` 同步清理、根据 `event.affectedNodes` 刷新缓存，或用 `keep` 保护关键节点
 - **listener 回调中再次破坏**：允许，但继承自 v0.1.0 的既有 reentrance 行为——`notifyListeners` 不冻结监听器列表也不去重快照，嵌套的状态变更可能导致无限递归或快照 out-of-order 送达。调用方若敏感于顺序，应在监听器内避免触发新的状态变更
 - **性能**：`remove` 复杂度为 O(子节点数)；`prune` 为 O(被删节点数)；`compact` 当前实现采用反复扫描直到稳定的策略（理论上界 O(n²)，但因为 root / current / 分叉 / 叶子全部不参与合并，可被合并的"线性中间节点"通常占少数），适合人类操作频率而非密集批处理；大批量场景可在后续版本演进为单次拓扑遍历
 
@@ -450,7 +526,7 @@ tree.compact({ mergeData: mergePatch })
 | `remove` 传入根节点 id | `throwError('history-tree', 'Cannot remove root node')` | `[@cmtlyt/lingshu-toolkit#history-tree]: Cannot remove root node` |
 | `remove` 当前节点命中且策略为 `throw` | `throwError('history-tree', 'Current node "${currentId}" is the target of remove')` | `[@cmtlyt/lingshu-toolkit#history-tree]: Current node "xxx" is the target of remove` |
 | `prune` 时节点不存在 | `throwError('history-tree', 'Node "${nodeId}" does not exist')` | `[@cmtlyt/lingshu-toolkit#history-tree]: Node "xxx" does not exist` |
-| `prune` 传入根节点 id | `throwError('history-tree', 'Cannot prune root node')` | `[@cmtlyt/lingshu-toolkit#history-tree]: Cannot prune root node` |
+| `prune` 传入根节点 id 且 `includeSelf !== false` | `throwError('history-tree', 'Cannot prune root node')` | `[@cmtlyt/lingshu-toolkit#history-tree]: Cannot prune root node` |
 | `prune` 当前节点位于子树且策略为 `throw` | `throwError('history-tree', 'Current node "${currentId}" is in pruned subtree of "${nodeId}"')` | `[@cmtlyt/lingshu-toolkit#history-tree]: Current node "xxx" is in pruned subtree of "yyy"` |
 
 > compact 内部错误会按 remove 的错误抛出（因为 compact = 多次 remove）。
@@ -473,38 +549,48 @@ tree.compact({ mergeData: mergePatch })
 | 27 | **remove - 根节点抛错** | 调用 `tree.remove(rootId)` 抛错且不修改树 |
 | 28 | **remove - 节点不存在抛错** | 错误信息匹配 RFC 01 既有格式 |
 | 29 | **remove - 触发 onChange 一次** | 一次调用只通知一次 |
-| 30 | **prune - 叶子节点** | 父节点 childrenIds 不含被删 id，size -1 |
-| 31 | **prune - 中间节点** | 所有后代被删；返回值为**后序 DFS** 顺序的 id 列表 |
-| 32 | **prune - currentId 在子树内（默认 parent）** | currentId 回退到被删根节点的父 |
-| 33 | **prune - currentId 在子树内（root 策略）** | currentId 回退到 rootId |
-| 34 | **prune - currentId 在子树内（throw 策略）** | 抛错，currentId 与树状态不变 |
-| 35 | **prune - currentId 不在子树内** | currentId 保持不变 |
-| 36 | **prune - 根节点抛错** | 调用 `tree.prune(rootId)` 抛错且不修改树 |
-| 37 | **prune - 节点不存在抛错** | 错误信息匹配 |
-| 38 | **prune - 触发 onChange 一次** | 一次调用只通知一次 |
-| 39 | **compact - 合并线性链（不传 mergeData）** | 中间节点被删，子节点 data 不变（适合全量场景） |
-| 40 | **compact - 合并线性链（传 mergeData）** | 验证 mergeData 被按"父先子后"的顺序对每个被合并节点调用 |
-| 41 | **compact - 不合并 root** | root 即使只有 1 个子节点也保留 |
-| 42 | **compact - 不合并 current** | current 永远保留 |
-| 43 | **compact - 不合并分叉节点** | >1 子节点不参与合并 |
-| 44 | **compact - 不合并叶子** | 0 子节点不参与合并 |
-| 45 | **compact - keep 保护** | keep 返回 true 的节点不被合并 |
-| 46 | **compact - 无可合并节点** | 返回 0 且不触发 onChange |
-| 47 | **compact - 触发 onChange 一次** | 有合并发生时一次调用只通知一次 |
-| 48 | **compact - 合并后 parent/child 关系正确** | 被提升的子节点 parentId 与 grandparent.childrenIds 顺序均正确 |
-| 49 | **compact - 候选按 root-to-leaf 顺序处理** | 构造 v0 ── v1 ── v2 ── v3(current) 线性链，传入 mergeData 记录调用次序与参数；验证第一次调用参数为 (v1.data, v2.data)，第二次为 (mergeData 第一次的返回值, v3.data) |
-| 50 | **节点修改策略 - id 稳定** | remove / compact 后保留节点的 id 不变；compact 整条线性链合并后，最末端保留节点的 id 与合并前一致 |
-| 51 | **节点修改策略 - data 原地覆盖** | mergeData 返回值直接写入保留节点的 data；getSnapshot 在 compact 前后取得的 snapshot 中，保留节点 id 相同但 data 不同 |
-| 52 | **差量场景集成测试** | 模拟 patch 存储 + 多次 commit + compact + 从 root 重放 → 验证状态与未 compact 时一致 |
+| 30 | **remove - previewRemove** | 返回被删除节点、父节点、子节点的操作前快照；不修改树、不触发 onChange |
+| 31 | **remove - onChange event** | `event.removedNodes` / `event.affectedNodes` 与预期一致 |
+| 32 | **prune - 叶子节点** | 父节点 childrenIds 不含被删 id，size -1 |
+| 33 | **prune - 中间节点** | 所有后代被删；返回值为**后序 DFS** 顺序的 id 列表 |
+| 34 | **prune - includeSelf false** | 仅删除目标节点的后代，目标节点保留且 childrenIds 清空 |
+| 35 | **prune - includeSelf false 且无后代** | 返回 []，不触发 onChange |
+| 36 | **prune - includeSelf false 允许 rootId** | root 保留，所有非根节点被删除 |
+| 37 | **prune - currentId 在子树内（默认 parent）** | includeSelf true 时 currentId 回退到被删根节点的父；includeSelf false 时回退到 nodeId |
+| 38 | **prune - currentId 在子树内（root 策略）** | currentId 回退到 rootId |
+| 39 | **prune - currentId 在子树内（throw 策略）** | 抛错，currentId 与树状态不变 |
+| 40 | **prune - currentId 不在子树内** | currentId 保持不变 |
+| 41 | **prune - 根节点抛错** | 调用 `tree.prune(rootId)` 抛错且不修改树 |
+| 42 | **prune - 节点不存在抛错** | 错误信息匹配 |
+| 43 | **prune - 触发 onChange 一次** | 有节点被删除时一次调用只通知一次 |
+| 44 | **prune - previewPrune** | 返回被删除节点和被修改 childrenIds 的保留节点；不修改树、不触发 onChange |
+| 45 | **prune - onChange event** | `event.removedNodes` 为本次被删节点，`event.affectedNodes` 与 preview 一致 |
+| 46 | **compact - 合并线性链（不传 mergeData）** | 中间节点被删，子节点 data 不变（适合全量场景） |
+| 47 | **compact - 合并线性链（传 mergeData）** | 验证 mergeData 被按"父先子后"的顺序对每个被合并节点调用 |
+| 48 | **compact - 不合并 root** | root 即使只有 1 个子节点也保留 |
+| 49 | **compact - 不合并 current** | current 永远保留 |
+| 50 | **compact - 不合并分叉节点** | >1 子节点不参与合并 |
+| 51 | **compact - 不合并叶子** | 0 子节点不参与合并 |
+| 52 | **compact - keep 保护** | keep 返回 true 的节点不被合并 |
+| 53 | **compact - 无可合并节点** | 返回 [] 且不触发 onChange |
+| 54 | **compact - 触发 onChange 一次** | 有合并发生时一次调用只通知一次 |
+| 55 | **compact - 返回被合并节点列表** | 返回 root-to-leaf 顺序的被删节点 id 列表 |
+| 56 | **compact - 合并后 parent/child 关系正确** | 被提升的子节点 parentId 与 grandparent.childrenIds 顺序均正确 |
+| 57 | **compact - 候选按 root-to-leaf 顺序处理** | 构造 v0 ── v1 ── v2 ── v3(current) 线性链，传入 mergeData 记录调用次序与参数；验证第一次调用参数为 (v1.data, v2.data)，第二次为 (mergeData 第一次的返回值, v3.data) |
+| 58 | **compact - previewCompact** | 返回候选节点、候选 child、候选 parent 的操作前快照；不修改树、不触发 onChange |
+| 59 | **compact - onChange event** | `event.removedNodes` 为被合并节点，`event.affectedNodes` 与 preview 一致 |
+| 60 | **节点修改策略 - id 稳定** | remove / compact 后保留节点的 id 不变；compact 整条线性链合并后，最末端保留节点的 id 与合并前一致 |
+| 61 | **节点修改策略 - data 原地覆盖** | mergeData 返回值直接写入保留节点的 data；getSnapshot 在 compact 前后取得的 snapshot 中，保留节点 id 相同但 data 不同 |
+| 62 | **差量场景集成测试** | 模拟 patch 存储 + 多次 commit + compact + 从 root 重放 → 验证状态与未 compact 时一致 |
 
 ## 文件改动规划
 
 | 文件 | 改动 |
 | --- | --- |
-| `src/shared/history-tree/types.ts` | `HistoryTree<T>` 接口新增 `remove` / `prune` / `compact` 三个方法签名 |
-| `src/shared/history-tree/core.ts` | 实现三个新方法；复用 `getNodeOrThrow` 与 `notifyListeners`；`compact` 内部委托 `remove` |
-| `src/shared/history-tree/index.mdx` | 文档新增"破坏性操作"章节；强调差量场景的 mergeData 必传 |
-| `src/shared/history-tree/__test__/history-tree.node.test.ts` | 追加 32 条新测试用例 |
+| `src/shared/history-tree/types.ts` | `HistoryTree<T>` 接口新增 `remove` / `prune` / `compact` 三个破坏性方法、`previewRemove` / `previewPrune` / `previewCompact` 三个检测方法，以及 `HistoryTreeChangeEvent<T>` 类型 |
+| `src/shared/history-tree/core.ts` | 实现三个破坏性方法和三个检测方法；复用 `getNodeOrThrow` 与 `notifyListeners`；`compact` 内部委托 remove 的核心拓扑逻辑但只通知一次 |
+| `src/shared/history-tree/index.mdx` | 文档新增"破坏性操作"章节；强调差量场景的 mergeData 必传、includeSelf 语义、preview 方法和 onChange event |
+| `src/shared/history-tree/__test__/history-tree.node.test.ts` | 追加 45 条新测试用例 |
 | `src/shared/history-tree/__docs__/rfcs/02-history-tree-destructive-ops/IMPLEMENTATION.md` | RFC 通过后另起实施清单 |
 
 ## 关键设计取舍小结
@@ -514,15 +600,18 @@ tree.compact({ mergeData: mergePatch })
 | 单点删除是否提供 | **是** | cmtlyt 评审指出"删一个节点 = 子节点提升"是自然语义；之前"歧义"论证不成立 |
 | 数据合并由谁决定 | **调用方** | 框架对全量/差量无感（继承 RFC 01 立场），调用方传 mergeData 显式表达语义 |
 | 差量场景不传 mergeData 是否报错 | **不报错** | 框架无法判断"全量 vs 差量"，强制报错会让全量场景被迫传无意义函数；通过 JSDoc + RFC 警告把责任明确给调用方 |
-| compact 与 remove 关系 | **compact 内部委托 remove** | 避免重复实现；compact 只负责"决定合并谁"，"怎么合并"完全交给 remove |
+| compact 与 remove 关系 | **compact 复用 remove 的核心拓扑逻辑，但只通知一次** | 避免重复实现；compact 只负责"决定合并谁"，"怎么合并"沿用 remove；为满足 onChange 一次的契约，实现上需要抽出内部 `removeNode`，不能直接循环调用公开 `remove` |
 | 合并后修改节点还是新建节点 | **原地修改保留节点的 data，id 不变** | id 稳定避免外部引用失效；不引入与 commit 并列的"合并提交"概念；调用方有"用合并结果新建节点"的需求时可显式 prune + commit 表达 |
 | compact 多候选时处理顺序 | **root-to-leaf** | 保证 mergeData 按"父先子后" fold-left 累积；对结合律合并器结果相同，对非结合律情形结果可预测 |
 | remove 多子节点时 mergeData 调用次数 | **每个 child 各 1 次** | 差量场景下每个 child 都需要被删节点的 patch 前置才能保持从根可重算 |
 | prune 是否提供 mergeData | **否** | 整棵子树都被丢弃，"合并到谁"无语义；调用方有汇总需求应在外部 getSnapshot 处理后再调 prune |
-| onChange 在 compact 0 合并时是否触发 | **不触发** | 无状态变化 → 无意义通知；与 checkout-self 仍触发的既有不对称是有意的前向改进 |
+| prune 是否删除选中节点 | **默认删除，`includeSelf: false` 时保留** | 兼顾"删除整棵分支"与"清空某节点后代"两个场景；`includeSelf: false` 时允许传 rootId 用于清空非根节点 |
+| compact 返回值 | **返回被合并删除的节点 id 列表** | 调用方可直接清理外部引用；空数组同时表达"无变化" |
+| 是否提供检测方法 | **提供 `previewRemove` / `previewPrune` / `previewCompact`** | 让调用方在破坏前确认影响范围；无影响返回 []，便于 UI 二次确认或外部缓存预清理 |
+| onChange event | **提供可选第二参数** | 保持旧 listener 兼容，同时在破坏性操作后暴露 removedNodes / affectedNodes，满足外部引用清理需求 |
+| onChange 在 0 变更时是否触发 | **不触发** | `prune(includeSelf:false)` 无后代、`compact` 无候选时都无状态变化 → 无意义通知；与 checkout-self 仍触发的既有不对称是有意的前向改进 |
 
 ## 开放问题
 
 - 是否需要在 `createHistoryTree` 配置中加 `storageMode: 'full' | 'diff'`，从而让框架在差量模式下强制 mergeData？倾向不加——增加主入口配置项的复杂度换不来太多保护；调用方自己清楚自己的存储模式
-- `compact` 是否需要返回被合并节点的 id 列表（便于外部清理引用）？当前仅返回数量；如外部确有此需求可演进为 `{ count, removedIds }` 形态。倾向先保持 `number`，待真实场景出现再扩展
 - 是否提供"批量破坏性操作 + 单次通知"的事务 API（如 `batch(() => { ... })`）？目前每个方法内部已合并通知；跨方法的事务批处理属于后续话题
