@@ -101,6 +101,8 @@ console.log(result) // { id: '1', name: 'John Doe', age: 18 }
 
 ### 请求拦截 (onRequest)
 
+`network` 模式下 `onRequest` 接收待发送的 `Request`，可以就地修改它，也可以返回一个新的 `Request` 来替换原请求：
+
 ```ts
 import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
 
@@ -108,14 +110,8 @@ const getUserApi = defineApi({
   url: '/user',
   method: 'GET',
   onRequest(req, config) {
-    // 可以修改请求配置
-    return {
-      ...req,
-      headers: {
-        ...req.headers,
-        'Authorization': 'Bearer token',
-      },
-    }
+    // 就地修改 headers, 无需返回值
+    req.headers.set('Authorization', 'Bearer token')
   },
 })
 
@@ -124,6 +120,39 @@ const getUser = createApi(getUserApi, {
 })
 
 const result = await getUser({ id: '1' })
+```
+
+返回 `Response` 可以直接短路请求，不再发起真实网络请求（响应仍会走 `onResponse`/`parser`/`tvo`）：
+
+```ts
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  onRequest(req, config) {
+    const cached = sessionStorage.getItem('user')
+    // 命中缓存则短路, 不发起网络请求
+    if (cached) {
+      return new Response(cached)
+    }
+  },
+})
+```
+
+带 body 的请求若在 hook 中读取过 body，需要基于 `url` 重建 `Request`，不能直接用原 `Request` 作为构造参数（其 body 流已被消费）：
+
+```ts
+const createUserApi = defineApi({
+  url: '/user',
+  method: 'POST',
+  async onRequest(req, config) {
+    const body = await req.json()
+    return new Request(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body: JSON.stringify({ ...body, source: 'web' }),
+    })
+  },
+})
 ```
 
 ### 响应拦截 (onResponse)
@@ -248,6 +277,20 @@ const result = await getUser({ id: '1' })
 - `onRequest` 在请求发送前执行，可以修改请求配置
 - `onResponse` 在响应解析后执行，可以修改响应数据
 - `onResponse` 会覆盖 `parser` 的解析方式
+
+### ⚠️ onRequest 的返回值语义随请求模式变化
+
+| 请求模式 | 返回值处理 |
+| --- | --- |
+| `network`（默认） | 返回 `Response` 短路请求；返回 `Request` 替换待发送的请求；返回 `undefined`/`null` 发送原请求；其余返回值被忽略并输出一次告警 |
+| `mock` | 返回值直接作为响应体使用 |
+| `requestModeMap` 自定义模式 | 不会执行 `onRequest`，由自定义实现自行决定 |
+
+### ⚠️ 行为变更
+
+- `network` 模式此前**不会**执行 `onRequest`
+- 若此前在共享配置中定义 `onRequest` 仅用于 `mock` 模式，升级后它在 `network` 模式下也会被执行
+- 这类 hook 返回裸数据对象时会被忽略并输出告警，可在 hook 内通过 `config.requestMode` 区分处理
 
 ### ⚠️ Mock 模式
 
