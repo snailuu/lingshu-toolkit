@@ -33,6 +33,8 @@ import { createHistoryTree } from '@cmtlyt/lingshu-toolkit/shared/history-tree'
 - 📦 **泛型存储空间**：每个节点关联的数据类型通过泛型 `T` 约束
 - 🔙 **路径回溯**：获取当前节点到根节点路径上的所有存储数据
 - 🆔 **可定制 ID**：支持自定义节点 id 生成策略，默认自增
+- 🗑️ **显式破坏性操作**：`remove` / `prune` / `compact` 主动回收历史节点，配套 `preview*` 预估影响面
+- 💾 **快照持久化与回滚**：`getSnapshot` + `loadFromSnapshot` 覆盖跨会话恢复与失败回滚
 - 🪶 **零依赖、框架无关**：纯数据结构，不区分全量/差异，存什么取什么
 
 ## Examples
@@ -86,6 +88,103 @@ const tree = createHistoryTree({
 })
 ```
 
+### 破坏性操作
+
+历史默认永不丢失。长会话下需要回收内存时，用下面三个**显式**方法主动删除节点——不调用就不破坏。
+
+```ts
+// 单点删除：v2 被删除，它的子节点提升到 v2 的父节点下，占据 v2 的原位置
+tree.remove('2')
+
+// 子树删除：删除 v4 及其全部后代，返回后序 DFS 顺序的被删 id 列表
+tree.prune('4') // → ['5', '9', '8', '4']
+
+// 只清空后代、保留节点本身；此时允许传 rootId 来清空整棵树的非根节点
+tree.prune('4', { includeSelf: false }) // → ['5', '9', '8']
+
+// 批量压缩：合并所有"只有 1 个子节点"的线性中间节点
+// root / current / 分叉节点 / 叶子节点都不参与
+tree.compact() // → 被合并掉的节点 id 列表（root-to-leaf 顺序）
+```
+
+当前节点被删除时的回退策略由 `onCurrentDeleted` 决定（`remove` 支持 `'parent'`（默认）/ `'first-child'` / `'throw'`，`prune` 支持 `'parent'` / `'root'` / `'throw'`）。
+
+#### 差量场景必须传 mergeData
+
+框架对存储语义无感。**全量场景**下每个节点自带完整状态，删除中间节点不影响其它节点；**差量场景**下每个节点只存相对父节点的 patch，删掉中间节点会直接断链：
+
+```ts
+// v0 ── v1{ops:[+x]} ── v2{ops:[+y]} ── v3{ops:[+z]}
+tree.remove('2') // 没传 mergeData → v2 的 [+y] 永远丢失，从根重放少一步
+
+tree.remove('2', {
+  mergeData: (removedData, childData) => ({ ops: [...removedData.ops, ...childData.ops] }),
+})
+// v3.ops 变成 [+y, +z]，从根重放结果不变
+```
+
+要点：
+
+- `mergeData` 对**每个子节点各调用一次**，返回值**原地覆盖**子节点的 data，子节点 id 与拓扑位置不变
+- `mergeData` 必须是纯函数。`compact` 按 root-to-leaf 顺序 fold-left 累积，后一次的输入是前一次的输出
+- `mergeData` 抛错是安全的：树状态保持调用前不变、不触发 `onChange`、错误对象原样上抛（`remove` 先算后写，`compact` 用内部快照整体回滚）
+- `prune` **不接受** `mergeData`——整棵子树都被丢弃，"合并到谁"无语义可言
+
+#### preview 与 event 的时态差异
+
+三个 `preview*` 方法参数与对应破坏性方法一致，返回本次会受影响的节点，不修改树也不触发 `onChange`：
+
+```ts
+const affected = tree.previewRemove('3')
+if (affected.length > 0 && (await confirmDialog(affected))) {
+  tree.remove('3', { mergeData })
+}
+```
+
+`preview*` 返回的是**操作前**快照，只适合影响面评估与二次确认弹窗。要把新值写进外部缓存，必须用 `onChange` 第二个参数里的 `event.affectedNodes`（**操作后**快照）——拿 `preview*` 的结果去刷新缓存会写回过期 data。
+
+```ts
+tree.onChange((snapshot, event) => {
+  if (!event) return
+  for (const node of event.removedNodes) cache.delete(node.id) // 操作前快照，节点已不存在
+  for (const node of event.affectedNodes) cache.set(node.id, node.data) // 操作后快照，可直接写入
+})
+```
+
+`event.removedNodes` 与 `event.affectedNodes` 的 id 并集，等于对应 `preview*` 返回的 id 集合。
+
+一个例外情形：`previewCompact` 不调用 `mergeData`，所以 `keep` 在 preview 中只能看到**操作前**的 data，而真实 `compact` 中候选被检查时其 data 可能已被前序合并覆盖。`keep` 的判断若依赖 data 内容（而不是 id / 拓扑），preview 与真实 compact 的候选集可能不一致。
+
+### 快照持久化 / 回滚
+
+`loadFromSnapshot` 用一份快照整体替换实例的 `rootId`、`currentId` 与全部节点，实例引用本身保持不变。
+
+```ts
+// 场景 1：跨会话持久化恢复
+const saved = localStorage.getItem('doc-history')
+if (saved) tree.loadFromSnapshot(JSON.parse(saved))
+tree.onChange(snapshot => localStorage.setItem('doc-history', JSON.stringify(snapshot)))
+
+// 场景 2：多步破坏性操作的备份与回滚
+const backup = tree.getSnapshot()
+try {
+  tree.prune(failedBranchRoot)
+  tree.compact({ mergeData })
+}
+catch (error) {
+  tree.loadFromSnapshot(backup) // 还原到破坏之前
+  throw error
+}
+```
+
+要点：
+
+- **会丢弃当前树**，没有内建确认或合并机制；需要保留当前内容时自己先 `getSnapshot()` 备份
+- 写入前完整校验快照结构（缺字段、rootId / currentId 不存在、父子链接不一致、多个根、环或孤儿），**校验失败时当前树完全不变**且不触发 `onChange`
+- 不校验 `node.data`。快照来自 `JSON.parse` 时，`Date` / `Map` / `Set` 等类型需要调用方自行还原
+- `node.data` 按引用原样存放，加载后改动原快照对象里的 data 会直接影响树中的数据
+- **id 冲突约定**：使用内置 `generateId` 时，加载后计数器自动推进到 `max(可解析为非负整数的 id) + 1`（只推进不后退），下一次 `commit` 不会撞上快照里已有的 id；传了自定义 `generateId` 时框架不做任何干预，唯一性仍由调用方负责
+
 ## API
 
 ### `createHistoryTree<T>(options): HistoryTree<T>`
@@ -110,7 +209,14 @@ const tree = createHistoryTree({
 | `getNode(nodeId)` | `(nodeId: string) => HistoryNodeInfo<T>` | 获取指定节点信息 |
 | `getRoot()` | `() => HistoryNodeInfo<T>` | 获取根节点信息 |
 | `getSnapshot()` | `() => HistoryTreeSnapshot<T>` | 获取整棵树的快照 |
-| `onChange(listener)` | `(listener: (snapshot: HistoryTreeSnapshot<T>) => void) => () => void` | 注册变更监听器，返回取消订阅函数 |
+| `onChange(listener)` | `(listener: (snapshot: HistoryTreeSnapshot<T>, event?: HistoryTreeChangeEvent<T>) => void) => () => void` | 注册变更监听器，返回取消订阅函数 |
+| `remove(nodeId, options?)` | `(nodeId: string, options?: HistoryTreeRemoveOptions<T>) => void` | 【破坏性】单点删除，子节点提升到父节点原位置 |
+| `previewRemove(nodeId, options?)` | `(nodeId: string, options?: HistoryTreeRemoveOptions<T>) => HistoryNodeInfo<T>[]` | 预览 `remove` 影响的节点（操作前快照） |
+| `prune(nodeId, options?)` | `(nodeId: string, options?: HistoryTreePruneOptions) => string[]` | 【破坏性】子树删除，返回后序 DFS 的被删 id 列表 |
+| `previewPrune(nodeId, options?)` | `(nodeId: string, options?: HistoryTreePruneOptions) => HistoryNodeInfo<T>[]` | 预览 `prune` 影响的节点（操作前快照） |
+| `compact(options?)` | `(options?: HistoryTreeCompactOptions<T>) => string[]` | 【破坏性】批量合并线性中间节点，返回被合并 id 列表 |
+| `previewCompact(options?)` | `(options?: HistoryTreeCompactOptions<T>) => HistoryNodeInfo<T>[]` | 预览 `compact` 影响的节点（操作前快照） |
+| `loadFromSnapshot(snapshot)` | `(snapshot: HistoryTreeSnapshot<T>) => void` | 用快照整体替换当前树，校验失败时树不变 |
 | `currentId` | `string` | 当前节点 id |
 | `currentData` | `T` | 当前节点存储数据（getter） |
 | `parentData` | `T \| null` | 父节点存储数据（getter），根节点为 null |
@@ -133,6 +239,46 @@ const tree = createHistoryTree({
 | `currentId` | `string` | 当前节点 id |
 | `nodes` | `Readonly<Record<string, HistoryNodeInfo<T>>>` | 所有节点信息，key 为节点 id |
 
+#### HistoryTreeChangeEvent\<T\>
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `type` | `'commit' \| 'checkout' \| 'remove' \| 'prune' \| 'compact' \| 'load'` | 触发本次变更的操作类型 |
+| `removedNodes` | `readonly HistoryNodeInfo<T>[]` | 本次删除的节点，**操作前**快照；`commit` / `checkout` 为空数组，`load` 为旧树全部节点 |
+| `affectedNodes` | `readonly HistoryNodeInfo<T>[]` | 操作后仍存在的受影响节点，**操作后**快照，可直接刷新外部缓存 |
+
+各操作的事件语义：
+
+| 操作 | 触发时机 | `removedNodes` | `affectedNodes` |
+| --- | --- | --- | --- |
+| `commit` | 每次一定触发 | `[]` | 新建节点 + 其父节点 |
+| `checkout` | 每次一定触发（含切到当前节点） | `[]` | `[]`（只移动指针） |
+| `remove` | 每次一定触发 | 被删节点 | 父节点 + 各被提升的子节点 |
+| `prune` | 被删节点数 > 0 时触发 | 本次被删的全部节点 | 被修改 `childrenIds` 的保留节点 |
+| `compact` | 合并节点数 > 0 时触发；`mergeData` 抛错回滚时不触发 | 本次合并删除的全部节点 | 被覆盖 data / 被改拓扑的保留节点 |
+| `load` | 校验通过时触发 | 被替换掉的旧树全部节点 | 加载后新树的全部节点 |
+
+#### HistoryTreeRemoveOptions\<T\>
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `mergeData` | `(removedData: T, survivorData: T) => T` | 把被删节点 data 合并到每个子节点，差量场景必传 |
+| `onCurrentDeleted` | `'parent' \| 'first-child' \| 'throw'` | 当前节点被删时的回退策略，默认 `'parent'` |
+
+#### HistoryTreePruneOptions
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `includeSelf` | `boolean` | 是否删除 `nodeId` 本身，默认 `true`；为 `false` 时仅删后代且允许传 `rootId` |
+| `onCurrentDeleted` | `'parent' \| 'root' \| 'throw'` | 当前节点落入被删子树时的回退策略，默认 `'parent'` |
+
+#### HistoryTreeCompactOptions\<T\>
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `mergeData` | `(removedData: T, survivorData: T) => T` | 语义与 `remove` 完全一致，差量场景必传 |
+| `keep` | `(node: HistoryNodeInfo<T>) => boolean` | 返回 `true` 的节点不会被合并 |
+
 ### 获取快照
 
 ```ts
@@ -145,7 +291,7 @@ console.log(Object.keys(snapshot.nodes).length) // 节点总数
 ### 监听变更
 
 ```ts
-// 注册监听器，commit / checkout 时自动触发
+// 注册监听器，commit / checkout / remove / prune / compact / load 时自动触发
 const unsubscribe = tree.onChange((snapshot) => {
   console.log('树已变更', snapshot.currentId)
   console.log('节点总数', Object.keys(snapshot.nodes).length)
@@ -157,4 +303,15 @@ tree.checkout(rootId)                            // 触发回调
 // 取消订阅
 unsubscribe()
 tree.commit({ title: 'v2', content: 'silent' }) // 不再触发
+```
+
+第二个参数是可选的变更事件，用于在破坏性操作后同步外部引用；只接收 `snapshot` 的旧监听器不需要任何修改：
+
+```ts
+tree.onChange((snapshot, event) => {
+  if (event?.type === 'prune' || event?.type === 'compact') {
+    for (const node of event.removedNodes) cache.delete(node.id)
+    for (const node of event.affectedNodes) cache.set(node.id, node.data)
+  }
+})
 ```
