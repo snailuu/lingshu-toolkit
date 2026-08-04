@@ -134,8 +134,12 @@ export interface HistoryTree<T> {
   getSnapshot: () => HistoryTreeSnapshot<T>;
 
   /**
-   * 注册变更监听器，当 commit / checkout / remove / prune / compact / load 导致树状态变化时触发
+   * 注册变更监听器，由 commit / checkout / remove / prune / compact / load 触发
    * 第一个参数为最新的快照，第二个参数为可选事件对象，只接收 snapshot 的旧监听器无需修改
+   *
+   * 触发时机：commit / checkout / remove / load 每次调用都触发——其中 `checkout` 到当前节点
+   * 虽无任何状态变化也照常触发（v0.1.0 既定行为）；`prune` / `compact` 只在确实有节点
+   * 被删除 / 合并时触发，数量为 0 时不通知
    *
    * 快照时态：`event.removedNodes` 是操作前快照，`event.affectedNodes` 是操作后快照
    * 两者的 id 并集等于对应 `preview*` 方法返回的 id 集合

@@ -19,7 +19,7 @@
 | `core.ts` | 仅保留 RFC 01 的基础操作（`commitNode` / `checkoutNode` / `collectPathData`）与 `createHistoryTree` 门面组装 |
 | `index.ts` | 追加导出新增类型 |
 | `index.mdx` | 新增「破坏性操作」「快照持久化 / 回滚」章节与新增类型表格 |
-| `__test__/history-tree.node.test.ts` | 追加 58 条用例（RFC 表格 #18–#75）+ 7 条防御与边界用例，已有用例不动 |
+| `__test__/history-tree.node.test.ts` | 追加 58 条用例（RFC 表格 #18–#75）+ 9 条防御与边界用例，已有用例不动 |
 
 ## 实施步骤
 
@@ -57,13 +57,18 @@ RFC 把三组 options 写成内联字面量类型，实现改为具名 interface
 
 | 顺序 | 函数 | 覆盖的 RFC 校验项 |
 | --- | --- | --- |
-| 1 | `assertSnapshotShape` | #1 缺字段、#2 root 存在且 parentId 为 null、#3 current 存在 |
+| 1 | `assertSnapshotShape` | #1 缺字段、#2 root 存在且 parentId 为 null、#3 current 存在，外加节点值形状（见下） |
 | 2 | `assertSingleRoot` | #7 多个根 |
 | 3 | `assertReferencesExist` | #4 缺 parent、#5 缺 child |
-| 4 | `assertBidirectionalLinks` | #6 双向链接不一致 |
+| 4 | `assertBidirectionalLinks` | #6 双向链接不一致，外加重复子 id（见下） |
 | 5 | `assertReachableFromRoot` | #8 环与孤儿 |
 
 顺序不可随意调整：`assertSingleRoot` 必须排在 `assertReferencesExist` 之前，否则非根节点的 `parentId === null` 会被误报成"缺失父节点"。`inconsistent link` 的错误信息约定第一个 id 恒为父节点、第二个恒为子节点。
+
+RFC 的 8 条规则之外，实现补了两条防御性校验——都为兑现"快照结构非法一律抛 `Invalid snapshot`"的总契约，不改变已定的校验语义：
+
+- **节点值形状**（`node "xxx" is malformed`）：`nodes` 的值可能是 `null` 或缺 `childrenIds`（快照来自 `JSON.parse` 时尤其如此）。不先拦截，后续访问 `parentId` / 迭代 `childrenIds` 会抛原生 `TypeError`，违反 `@throws` 契约
+- **重复子 id**（`node "xxx" has duplicate children`）：`['1', '1']` 能通过双向一致性（重复项同样满足 `child.parentId === nodeId`）与可达性（按 `Set` 比较数量）两道校验。放行会让加载后的 `prune` 返回列表与 `event.removedNodes` 出现重复项
 
 `assertReachableFromRoot` 复用 `walkPreOrder`：双向一致性已保证每个节点只有一个父节点，可达范围内不可能成环，遍历必然终止。
 
@@ -89,6 +94,7 @@ interface TreeState<T> {
 - **`removeNode`（内部，不通知）与 `removeAndNotify`（公开 `remove`）分层**：`compact.ts` 从 `remove.ts` 导入的是 `removeNode`，不是公开 `remove`，否则一次 `compact` 会发出 N 次 `onChange` 并暴露中间态。这也是模块间唯一的横向依赖（`compact` → `remove`），其余依赖都指向 `state` / `helpers`
 - **`remove` 先算后写**：`mergeData` 对每个子节点的结果先全部算进临时数组，此阶段不写任何节点；抛错时树天然保持原状。之后的写回、改拓扑、删节点、回退 `currentId` 都是确定性内存操作
 - **`compact` 整体事务**：开始前 `buildSnapshot()` 备份 → 循环 `findCompactCandidate` + `removeNode` → 任一步抛错则 `restoreFromSnapshot(backup)` 整体回滚并原样上抛，不触发 `onChange`。`restoreFromSnapshot` 与 `loadFromSnapshot` 共用同一套还原逻辑
+- **`compact` 的 `removedNodes` 取自开始前的备份**：`removeNode` 当场返回的快照，其 `data` 可能已被前一个候选的 `mergeData` 覆盖（线性链上后一个候选正是前一次合并的写入目标）。`removedNodes` 的时态基准是整个 `compact` 调用之前，因此成功后按 `mergedIds` 顺序从 `backup.nodes` 取值，而不是边删边收集
 - **compact 候选顺序**：每轮用 `walkPreOrder` 取 root-to-leaf 第一个候选，合并后重新扫描，直到没有候选。候选条件为「非根 + 非 current + 恰好 1 个子节点 + `keep` 未返回 true」
 - **compact 的 `affectedNodes` 需过滤**：中途被记为受影响、随后自己也被合并掉的节点已不存在，通知前只保留仍在 `nodes` 里的
 - **`prune` 的 `survivorId`**：`includeSelf` 为 true 时是父节点，为 false 时是 `nodeId` 自己。回退 `currentId`（`'parent'` 策略）与 `affectedNodes` 都指向它，两个分支收敛成一条路径
@@ -98,7 +104,7 @@ interface TreeState<T> {
 
 ### 5. __test__/history-tree.node.test.ts — 测试用例
 
-追加 RFC 表格 #18–#75 共 58 条，另有 7 条覆盖防御分支与边界（深链 `prune` 不爆栈、`__proto__` 等原型链键的快照存取、`preview*` 无影响时返回 `[]`、快照为 `null`、双向链接从父到子方向的不一致），已有用例一条未动。三个共享 fixture：
+追加 RFC 表格 #18–#75 共 58 条，另有 9 条覆盖防御分支与边界（深链 `prune` 不爆栈、`__proto__` 等原型链键的快照存取、`preview*` 无影响时返回 `[]`、快照为 `null`、节点值非对象、重复子 id、双向链接从父到子方向的不一致），已有用例一条未动。三个共享 fixture：
 
 - `createSampleTree()` — RFC 的 v0~v9 拓扑，current 停在 v9
 - `createCompactTree()` — `c0 ── c1 ── c2 ── c3 ──┬── c4 / └── c5(current)`

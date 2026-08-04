@@ -14,6 +14,15 @@ function assertSnapshotShape<T>(snapshot: HistoryTreeSnapshot<T>): void {
   // 快照可能来自 JSON.parse 的不可信输入，存在性一律用 hasOwn 判断，
   // 防止 "constructor" 等原型链键被误判为存在的节点
   const { rootId, currentId, nodes } = snapshot;
+
+  // 节点值同样不可信：先确认形状，后续校验才能安全访问 parentId / childrenIds
+  for (const nodeId of Object.keys(nodes)) {
+    const node: unknown = nodes[nodeId];
+    if (typeof node !== 'object' || node === null || !('childrenIds' in node) || !Array.isArray(node.childrenIds)) {
+      throwError(MODULE_NAME, `Invalid snapshot: node "${nodeId}" is malformed`);
+    }
+  }
+
   if (!Object.hasOwn(nodes, rootId)) {
     throwError(MODULE_NAME, `Invalid snapshot: root node "${rootId}" does not exist`);
   }
@@ -55,6 +64,11 @@ function assertBidirectionalLinks<T>(snapshot: HistoryTreeSnapshot<T>): void {
   const { nodes } = snapshot;
   for (const nodeId of Object.keys(nodes)) {
     const node = nodes[nodeId];
+    // 重复子 id 能通过双向一致性与可达性校验（后者按 Set 比较数量），只能单独拦截；
+    // 放行会让 prune 的返回列表与 event.removedNodes 出现重复项
+    if (new Set(node.childrenIds).size !== node.childrenIds.length) {
+      throwError(MODULE_NAME, `Invalid snapshot: node "${nodeId}" has duplicate children`);
+    }
     for (const childId of node.childrenIds) {
       if (nodes[childId].parentId !== nodeId) {
         throwError(MODULE_NAME, `Invalid snapshot: inconsistent link between "${nodeId}" and "${childId}"`);

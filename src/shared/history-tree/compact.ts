@@ -74,7 +74,6 @@ function simulateCompact<T>(state: TreeState<T>, keep?: (node: HistoryNodeInfo<T
 function runCompact<T>(state: TreeState<T>, compactOptions?: HistoryTreeCompactOptions<T>) {
   const backup = buildSnapshot(state);
   const mergedIds: string[] = [];
-  const removedNodes: HistoryNodeInfo<T>[] = [];
   const affectedIds = new Set<string>();
 
   try {
@@ -83,9 +82,8 @@ function runCompact<T>(state: TreeState<T>, compactOptions?: HistoryTreeCompactO
       if (candidateId === undefined) {
         break;
       }
-      const { removed, affectedIds: ids } = removeNode(state, candidateId, { mergeData: compactOptions?.mergeData });
+      const { affectedIds: ids } = removeNode(state, candidateId, { mergeData: compactOptions?.mergeData });
       mergedIds.push(candidateId);
-      removedNodes.push(removed);
       for (const id of ids) {
         affectedIds.add(id);
       }
@@ -96,7 +94,9 @@ function runCompact<T>(state: TreeState<T>, compactOptions?: HistoryTreeCompactO
     throw error;
   }
 
-  return { mergedIds, removedNodes, affectedIds };
+  // 从开始前的备份取被删节点：removeNode 当场返回的快照，其 data 可能已被前一个候选的
+  // mergeData 覆盖，而 removedNodes 的时态基准是整个 compact 调用之前
+  return { mergedIds, removedNodes: mergedIds.map((id) => backup.nodes[id]), affectedIds };
 }
 
 export function compactAndNotify<T>(state: TreeState<T>, compactOptions?: HistoryTreeCompactOptions<T>): string[] {

@@ -910,7 +910,10 @@ describe('history-tree - compact 批量压缩', () => {
     const event = listener.mock.calls[0][1];
     expect(event.type).toBe('compact');
     expect(event.removedNodes.map((node: { id: string }) => node.id)).toEqual([c1, c2]);
-    expect(event.removedNodes[1].data).toBe('d1+d2');
+    // 操作前快照的时态基准是整个 compact 调用之前：c2 的 data 是 'd2'，
+    // 而不是被前一个候选 c1 合并覆盖后的 'd1+d2'
+    expect(event.removedNodes[0].data).toBe('d1');
+    expect(event.removedNodes[1].data).toBe('d2');
     expect(event.affectedNodes.map((node: { id: string }) => node.id)).toEqual([c0, c3]);
     expect(event.affectedNodes[1].data).toBe('d1+d2+d3');
     expect(event.affectedNodes[1].parentId).toBe(c0);
@@ -1318,6 +1321,33 @@ describe('history-tree - loadFromSnapshot 快照加载', () => {
       expect(tree.getSnapshot()).toEqual(before);
       expect(listener).not.toHaveBeenCalled();
     }
+  });
+
+  test('快照中节点值不是对象时按契约报 malformed 而非崩溃', () => {
+    const { tree } = createSampleTree();
+    const before = tree.getSnapshot();
+
+    const snapshot = createValidSnapshot();
+    snapshot.nodes['1'] = null as unknown as MutableSnapshotNode;
+
+    expect(() => tree.loadFromSnapshot(snapshot as unknown as HistoryTreeSnapshot<string>)).toThrow(
+      '[@cmtlyt/lingshu-toolkit#history-tree]: Invalid snapshot: node "1" is malformed',
+    );
+    expect(tree.getSnapshot()).toEqual(before);
+  });
+
+  test('快照中 childrenIds 存在重复 id 时报重复子节点', () => {
+    const { tree } = createSampleTree();
+    const before = tree.getSnapshot();
+
+    // 双向一致性与可达性校验都对重复项成立，需要单独拦截
+    const snapshot = createValidSnapshot();
+    snapshot.nodes['0'].childrenIds = ['1', '1'];
+
+    expect(() => tree.loadFromSnapshot(snapshot as unknown as HistoryTreeSnapshot<string>)).toThrow(
+      '[@cmtlyt/lingshu-toolkit#history-tree]: Invalid snapshot: node "0" has duplicate children',
+    );
+    expect(tree.getSnapshot()).toEqual(before);
   });
 
   test('快照为 null 时按契约报缺失字段而非崩溃', () => {
