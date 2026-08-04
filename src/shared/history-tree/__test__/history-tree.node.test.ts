@@ -714,6 +714,13 @@ describe('history-tree - prune 子树删除', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  test('previewPrune 在无节点会被删除时返回空数组', () => {
+    const { tree, v5 } = createSampleTree();
+
+    // v5 是叶子节点，includeSelf 为 false 时没有任何后代可删
+    expect(tree.previewPrune(v5, { includeSelf: false })).toEqual([]);
+  });
+
   test('onChange 事件中 removedNodes 为操作前快照、affectedNodes 为操作后快照', () => {
     const { tree, v3, v4, v5, v7, v8, v9 } = createSampleTree();
     const listener = vi.fn();
@@ -883,6 +890,14 @@ describe('history-tree - compact 批量压缩', () => {
     expect(preview[1].parentId).toBe(c1);
     expect(tree.getSnapshot()).toEqual(before);
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  test('previewCompact 在无候选节点时返回空数组', () => {
+    const tree = createHistoryTree<string>({ initialData: 'd0' });
+    tree.commit('d1');
+
+    // 只有 root 与 current 两个节点，没有任何线性中间节点
+    expect(tree.previewCompact()).toEqual([]);
   });
 
   test('onChange 事件中 removedNodes 为操作前快照、affectedNodes 为操作后快照', () => {
@@ -1303,6 +1318,31 @@ describe('history-tree - loadFromSnapshot 快照加载', () => {
       expect(tree.getSnapshot()).toEqual(before);
       expect(listener).not.toHaveBeenCalled();
     }
+  });
+
+  test('快照为 null 时按契约报缺失字段而非崩溃', () => {
+    const { tree } = createSampleTree();
+    const before = tree.getSnapshot();
+
+    expect(() => tree.loadFromSnapshot(null as unknown as HistoryTreeSnapshot<string>)).toThrow(
+      '[@cmtlyt/lingshu-toolkit#history-tree]: Invalid snapshot: missing required field "rootId"',
+    );
+    expect(tree.getSnapshot()).toEqual(before);
+  });
+
+  test('子节点 parentId 指向别的父节点时报双向链接不一致', () => {
+    const { tree } = createSampleTree();
+    const before = tree.getSnapshot();
+
+    // '0'.childrenIds 含 '1'，但 '1' 认 '2' 当父节点——从父到子方向的不一致
+    const snapshot = createValidSnapshot();
+    snapshot.nodes['1'].parentId = '2';
+    snapshot.nodes['2'] = { id: '2', data: 'd2', parentId: '0', childrenIds: [] };
+
+    expect(() => tree.loadFromSnapshot(snapshot as unknown as HistoryTreeSnapshot<string>)).toThrow(
+      '[@cmtlyt/lingshu-toolkit#history-tree]: Invalid snapshot: inconsistent link between "0" and "1"',
+    );
+    expect(tree.getSnapshot()).toEqual(before);
   });
 
   test('parentId 指向 "constructor" 等原型链键时按契约报 Invalid snapshot', () => {
